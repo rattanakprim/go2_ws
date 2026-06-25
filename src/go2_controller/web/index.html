@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Go2 Phone Control</title>
+<style>
+  :root { --bg:#111; --panel:#1c1c1c; --line:#333; --accent:#0d6efd; --danger:#d9534f;
+          --txt:#eee; --muted:#888; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent;
+      -webkit-user-select:none; user-select:none; touch-action:manipulation; }
+  html,body { margin:0; background:var(--bg); color:var(--txt);
+              font-family:-apple-system,Roboto,Segoe UI,sans-serif; }
+  .wrap { max-width:560px; margin:0 auto; padding:8px; }
+  h2 { font-size:15px; margin:14px 4px 6px; color:var(--muted); font-weight:600;
+       text-transform:uppercase; letter-spacing:.05em; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+          padding:10px; }
+  /* status bar */
+  #bar { display:flex; align-items:center; gap:8px; padding:6px 10px;
+         background:var(--panel); border:1px solid var(--line); border-radius:10px;
+         font-size:13px; position:sticky; top:0; z-index:5; }
+  #dot { width:10px; height:10px; border-radius:50%; background:var(--danger); flex:none; }
+  #dot.ok { background:#3fb950; }
+  #vel { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+  /* sensors */
+  .sensors { display:flex; gap:8px; }
+  .sensors > div { flex:1; }
+  .sensors .lbl { font-size:11px; color:var(--muted); margin-bottom:4px; }
+  #cam { width:100%; aspect-ratio:1/1; object-fit:cover; background:#222;
+         border-radius:8px; display:block; }
+  #lidar { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:8px;
+           display:block; }
+  /* joystick + dpad */
+  .drive { display:flex; gap:12px; align-items:center; }
+  #joy { width:150px; height:150px; flex:none; background:#f0f0f0; border-radius:50%;
+         position:relative; touch-action:none; }
+  #knob { width:46px; height:46px; border-radius:50%; background:var(--accent);
+          position:absolute; left:52px; top:52px; box-shadow:0 2px 6px #0008; }
+  .pad { flex:1; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  button { font-size:15px; font-weight:600; color:var(--txt); background:#2a2a2a;
+           border:1px solid var(--line); border-radius:10px; padding:14px 4px;
+           cursor:pointer; }
+  button:active { background:#383838; }
+  button.on { outline:2px solid var(--accent); background:#243; }
+  .pad .stop { background:var(--danger); color:#fff; border-color:var(--danger); }
+  .pad .sp { visibility:hidden; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .accent { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .purple { background:#6f42c1; border-color:#6f42c1; color:#fff; }
+  /* sliders */
+  .row { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+  .row label { width:62px; color:var(--muted); flex:none; }
+  .row output { width:46px; text-align:right; color:var(--txt);
+                font-variant-numeric:tabular-nums; flex:none; }
+  input[type=range] { flex:1; accent-color:var(--accent); height:28px; }
+  select { width:100%; padding:12px; font-size:15px; background:#2a2a2a; color:var(--txt);
+           border:1px solid var(--line); border-radius:10px; }
+  .note { font-size:11px; color:var(--muted); margin:6px 2px 0; }
+  /* map / autonomy */
+  #map { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:8px;
+         display:block; touch-action:none; cursor:crosshair; }
+  .navrow { display:flex; align-items:center; gap:10px; font-size:14px;
+            margin-bottom:8px; }
+  .navrow input { width:22px; height:22px; accent-color:var(--accent); }
+  #map.armed { outline:2px solid var(--accent); }
+  #navstop { margin-top:6px; width:100%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="bar"><span id="dot"></span><span id="state">connecting…</span>
+    <span id="vel">stopped</span></div>
+
+  <h2>Sensors</h2>
+  <div class="card sensors">
+    <div><div class="lbl">Camera /camera/image_raw</div>
+      <img id="cam" alt="camera"></div>
+    <div><div class="lbl">Lidar /scan (fwd = up)</div>
+      <canvas id="lidar" width="240" height="240"></canvas></div>
+  </div>
+
+  <h2>Map / Autonomy (SLAM + Nav2)</h2>
+  <div class="card">
+    <label class="navrow">
+      <input type="checkbox" id="navmode"> Autonomous mode — tap the map to set a goal
+    </label>
+    <label class="navrow">
+      <input type="checkbox" id="explore"> 🔍 Auto-explore (frontier mapping — needs explore node)
+    </label>
+    <label class="navrow">
+      <input type="checkbox" id="follow"> 🎯 Follow object (camera — needs follow node)
+    </label>
+    <canvas id="map" width="320" height="320"></canvas>
+    <div class="note">Blue dot/arrow = robot. Drive around to build the map. In
+      autonomous mode, tapping a free spot sends a Nav2 goal and manual driving
+      pauses. <button id="navstop">■ Stop navigation</button></div>
+  </div>
+
+  <h2>Drive</h2>
+  <div class="card drive">
+    <div id="joy"><div id="knob"></div></div>
+    <div class="pad">
+      <button class="sp"></button>
+      <button data-fx="1">↑ Fwd</button>
+      <button class="sp"></button>
+      <button data-fy="1">← Str</button>
+      <button class="stop" id="stop">■ STOP</button>
+      <button data-fy="-1">Str →</button>
+      <button data-fz="1">⟲ L</button>
+      <button data-fx="-1">↓ Back</button>
+      <button data-fz="-1">⟳ R</button>
+    </div>
+  </div>
+
+  <h2>Speed</h2>
+  <div class="card">
+    <div class="row"><label>linear</label>
+      <input id="lin" type="range" min="0" max="0.5" step="0.05" value="0.3">
+      <output id="linv">0.30</output></div>
+    <div class="row"><label>angular</label>
+      <input id="ang" type="range" min="0" max="1.5" step="0.1" value="0.8">
+      <output id="angv">0.80</output></div>
+  </div>
+
+  <h2>Posture / Actions</h2>
+  <div class="card">
+    <div class="grid4">
+      <button data-act="stand">⮝ Stand</button>
+      <button data-act="sit" class="purple">⤓ Sit</button>
+      <button data-act="liedown">Lie</button>
+      <button data-act="crouch">Crouch</button>
+      <button data-act="jump" class="accent">⤒ Jump</button>
+      <button data-act="wave">👋 Wave</button>
+      <button data-act="shake">🤝 Shake</button>
+      <button data-act="dance">💃 Dance</button>
+      <button data-act="selfright">Self-right*</button>
+    </div>
+    <div class="note">*experimental (open-loop self-right rarely succeeds)</div>
+  </div>
+
+  <h2>Gait</h2>
+  <div class="card">
+    <select id="gait">
+      <option value="crawl">crawl (stable)</option>
+      <option value="trot">trot *</option>
+      <option value="pace">pace *</option>
+      <option value="bound">bound *</option>
+      <option value="pronk">pronk *</option>
+    </select>
+    <div class="note">* experimental — dynamic, may stumble open-loop</div>
+  </div>
+
+  <h2>Body pose (lean + height)</h2>
+  <div class="card">
+    <div class="row"><label>roll</label>
+      <input class="pose" id="roll" type="range" min="-0.3" max="0.3" step="0.02" value="0">
+      <output id="rollv">0.00</output></div>
+    <div class="row"><label>pitch</label>
+      <input class="pose" id="pitch" type="range" min="-0.3" max="0.3" step="0.02" value="0">
+      <output id="pitchv">0.00</output></div>
+    <div class="row"><label>yaw</label>
+      <input class="pose" id="yaw" type="range" min="-0.3" max="0.3" step="0.02" value="0">
+      <output id="yawv">0.00</output></div>
+    <div class="row"><label>height</label>
+      <input class="pose" id="height" type="range" min="0" max="0.4" step="0.02" value="0">
+      <output id="heightv">0.00</output></div>
+    <button id="resetpose" style="width:100%;margin-top:6px">reset pose</button>
+  </div>
+
+  <div class="note" style="text-align:center;margin:14px 0 24px">
+    Go2 phone control · rosbridge @ <span id="hostlbl"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ---- endpoints (same host that served this page) ----
+const HOST  = location.hostname;
+const WS_URL = `ws://${HOST}:9090`;                          // rosbridge
+const CAM_URL = `http://${HOST}:8080/stream?topic=/camera/image_raw&type=mjpeg`;
+document.getElementById("hostlbl").textContent = HOST + ":9090";
+document.getElementById("cam").src = CAM_URL;
+
+// ---- minimal rosbridge client (vanilla, no roslibjs) ----
+let ws = null, wsReady = false;
+const dot = document.getElementById("dot");
+const stateEl = document.getElementById("state");
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    wsReady = true; dot.classList.add("ok"); stateEl.textContent = "connected";
+    advertise("/cmd_vel", "geometry_msgs/Twist");
+    advertise("/go2/action", "std_msgs/String");
+    advertise("/go2/body_pose", "geometry_msgs/Twist");
+    advertise("/goal_pose", "geometry_msgs/PoseStamped");
+    advertise("/go2/explore_enable", "std_msgs/Bool");
+    advertise("/go2/follow_enable", "std_msgs/Bool");
+    send({op:"subscribe", topic:"/scan", type:"sensor_msgs/LaserScan",
+          throttle_rate:100, queue_length:1});
+    send({op:"subscribe", topic:"/map", type:"nav_msgs/OccupancyGrid",
+          throttle_rate:1500, queue_length:1});
+    send({op:"subscribe", topic:"/tf", type:"tf2_msgs/TFMessage",
+          throttle_rate:100, queue_length:1});
+    send({op:"subscribe", topic:"/tf_static", type:"tf2_msgs/TFMessage"});
+  };
+  ws.onclose = () => {
+    wsReady = false; dot.classList.remove("ok"); stateEl.textContent = "reconnecting…";
+    setTimeout(connect, 1000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.op !== "publish") return;
+    if (m.topic === "/scan") drawLidar(m.msg);
+    else if (m.topic === "/map") onMap(m.msg);
+    else if (m.topic === "/tf" || m.topic === "/tf_static") onTf(m.msg);
+  };
+}
+function send(o) { if (wsReady) ws.send(JSON.stringify(o)); }
+function advertise(topic, type) { send({op:"advertise", topic, type}); }
+function pub(topic, msg) { send({op:"publish", topic, msg}); }
+
+// ---- drive state (latched, published @20Hz, mirrors the tkinter panel) ----
+let fx = 0, fy = 0, fz = 0;
+const lin = document.getElementById("lin"), ang = document.getElementById("ang");
+function twist(lx, ly, az) { return {linear:{x:lx,y:ly,z:0}, angular:{x:0,y:0,z:az}}; }
+
+function pubDrive() {
+  const L = parseFloat(lin.value), A = parseFloat(ang.value);
+  const vx = fx*L, vy = fy*L, wz = fz*A;
+  pub("/cmd_vel", twist(vx, vy, wz));
+  const moving = Math.abs(vx)>1e-6 || Math.abs(vy)>1e-6 || Math.abs(wz)>1e-6;
+  document.getElementById("vel").textContent = moving ?
+    `vx=${vx.toFixed(2)} vy=${vy.toFixed(2)} wz=${wz.toFixed(2)}` : "stopped";
+}
+function pubPose() {
+  pub("/go2/body_pose", {
+    linear:{x:0, y:0, z:parseFloat(height.value)},
+    angular:{x:parseFloat(roll.value), y:parseFloat(pitch.value), z:parseFloat(yaw.value)}
+  });
+}
+function setDrive(nfx, nfy, nfz) { fx=nfx; fy=nfy; fz=nfz; pubDrive(); }
+function stop() { setDrive(0,0,0); }
+
+// Manual driving pauses in autonomous mode, and when idle it goes SILENT (sends one
+// final stop, then nothing) so an open panel never fights Nav2's /cmd_vel. The
+// controller's watchdog holds the robot stopped while no one publishes.
+let wasMoving = false;
+setInterval(() => {
+  if (!wsReady || navMode) return;
+  pubPose();                                  // body pose never conflicts with Nav2
+  const moving = Math.abs(fx) > 1e-6 || Math.abs(fy) > 1e-6 || Math.abs(fz) > 1e-6;
+  if (moving) { pubDrive(); wasMoving = true; }
+  else if (wasMoving) { pubDrive(); wasMoving = false; }   // one final zero, then silent
+}, 50);
+
+// ---- D-pad + STOP (latching, like the desktop buttons) ----
+document.querySelectorAll("button[data-fx],button[data-fy],button[data-fz]").forEach(b => {
+  b.addEventListener("click", () => setDrive(
+    +(b.dataset.fx||0), +(b.dataset.fy||0), +(b.dataset.fz||0)));
+});
+document.getElementById("stop").addEventListener("click", stop);
+
+// ---- actions + gait ----
+document.querySelectorAll("button[data-act]").forEach(b => {
+  b.addEventListener("click", () => { stop(); pub("/go2/action", {data:b.dataset.act}); });
+});
+document.getElementById("gait").addEventListener("change", (e) =>
+  pub("/go2/action", {data:"gait_" + e.target.value}));
+
+// ---- sliders: live value labels + reset ----
+function bindOut(id) {
+  const el = document.getElementById(id), out = document.getElementById(id+"v");
+  const upd = () => out.textContent = parseFloat(el.value).toFixed(2);
+  el.addEventListener("input", upd); upd();
+}
+["lin","ang","roll","pitch","yaw","height"].forEach(bindOut);
+document.getElementById("resetpose").addEventListener("click", () => {
+  ["roll","pitch","yaw","height"].forEach(id => {
+    document.getElementById(id).value = 0;
+    document.getElementById(id+"v").textContent = "0.00";
+  });
+});
+
+// ---- virtual joystick (touch/mouse): forward + turn, release = stop ----
+const joy = document.getElementById("joy"), knob = document.getElementById("knob");
+const REACH = 52, KNOB = 23;          // px: travel radius, knob radius
+function joyMove(ev) {
+  const r = joy.getBoundingClientRect();
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  let dx = ev.clientX - cx, dy = ev.clientY - cy;
+  const d = Math.hypot(dx, dy);
+  if (d > REACH) { dx = dx*REACH/d; dy = dy*REACH/d; }
+  knob.style.left = (joy.clientWidth/2 + dx - KNOB) + "px";
+  knob.style.top  = (joy.clientHeight/2 + dy - KNOB) + "px";
+  setDrive(-dy/REACH, 0, -dx/REACH);   // up=fwd, left=turn-left (matches tkinter)
+}
+function joyEnd() {
+  knob.style.left = (joy.clientWidth/2 - KNOB) + "px";
+  knob.style.top  = (joy.clientHeight/2 - KNOB) + "px";
+  stop();
+}
+joy.addEventListener("pointerdown", (e) => { joy.setPointerCapture(e.pointerId); joyMove(e); });
+joy.addEventListener("pointermove", (e) => { if (e.buttons || e.pointerType==="touch") {
+  if (joy.hasPointerCapture(e.pointerId)) joyMove(e); } });
+joy.addEventListener("pointerup", joyEnd);
+joy.addEventListener("pointercancel", joyEnd);
+
+// ---- lidar top-down render (matches tkinter math) ----
+const lc = document.getElementById("lidar"), ctx = lc.getContext("2d");
+const LS = lc.width, VIEW_M = 5.0, SCALE = (LS/2 - 6)/VIEW_M;
+function drawLidar(msg) {
+  const cx = LS/2, cy = LS/2;
+  ctx.fillStyle = "#0b0b0b"; ctx.fillRect(0,0,LS,LS);
+  ctx.strokeStyle = "#1f3b1f";
+  for (let ring=1; ring<=VIEW_M; ring++) {
+    ctx.beginPath(); ctx.arc(cx, cy, ring*SCALE, 0, 2*Math.PI); ctx.stroke();
+  }
+  ctx.fillStyle = "#33ccff";                       // robot, pointing up = forward
+  ctx.beginPath(); ctx.moveTo(cx, cy-7); ctx.lineTo(cx-5, cy+5);
+  ctx.lineTo(cx+5, cy+5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#ff4040";
+  let a = msg.angle_min;
+  for (const r of msg.ranges) {
+    if (r > 0 && r < VIEW_M) {
+      const x = cx - r*SCALE*Math.sin(a), y = cy - r*SCALE*Math.cos(a);
+      ctx.fillRect(x-1.5, y-1.5, 3, 3);
+    }
+    a += msg.angle_increment;
+  }
+}
+
+// ===== SLAM map + Nav2 tap-to-go =====================================
+// ---- TF: track map->odom & odom->base_link, compose to map->base_link ----
+const tfs = {};                       // "parent>child" -> {x,y,yaw}
+function quatYaw(q){ return Math.atan2(2*(q.w*q.z + q.x*q.y),
+                                       1 - 2*(q.y*q.y + q.z*q.z)); }
+function onTf(msg){
+  for (const t of msg.transforms){
+    const tr = t.transform.translation, ro = t.transform.rotation;
+    tfs[t.header.frame_id + ">" + t.child_frame_id] =
+      {x:tr.x, y:tr.y, yaw:quatYaw(ro)};
+  }
+}
+function compose(a,b){                 // a∘b : parent->mid ∘ mid->child
+  const c=Math.cos(a.yaw), s=Math.sin(a.yaw);
+  return {x:a.x + c*b.x - s*b.y, y:a.y + s*b.x + c*b.y, yaw:a.yaw + b.yaw};
+}
+function robotInMap(){
+  const mo = tfs["map>odom"], ob = tfs["odom>base_link"];
+  if (!ob) return null;
+  return mo ? compose(mo, ob) : ob;    // before SLAM corrects, odom≈map
+}
+
+// ---- occupancy grid render + tap-to-goal ----
+const mapCanvas = document.getElementById("map"), mctx = mapCanvas.getContext("2d");
+let mapMsg = null, mapImg = null, goalWorld = null;
+let view = {scale:1, ox:0, oy:0};
+
+function onMap(msg){
+  mapMsg = msg;
+  const w = msg.info.width, h = msg.info.height, d = msg.data;
+  const off = document.createElement("canvas"); off.width = w; off.height = h;
+  const octx = off.getContext("2d"), img = octx.createImageData(w, h);
+  for (let i=0; i<w*h; i++){
+    const v = d[i];
+    const shade = v < 0 ? 43 : 255 - Math.round(v * 2.55);  // unknown gray / free white / occ black
+    const col = i % w, row = Math.floor(i / w);
+    const j = ((h - 1 - row) * w + col) * 4;                // flip Y so +y is up
+    img.data[j] = img.data[j+1] = img.data[j+2] = shade; img.data[j+3] = 255;
+  }
+  octx.putImageData(img, 0, 0);
+  mapImg = off;
+  drawMap();
+}
+function worldToPix(wx, wy){
+  const o = mapMsg.info.origin.position, res = mapMsg.info.resolution;
+  const col = (wx - o.x)/res, row = (wy - o.y)/res;
+  return {x: view.ox + col*view.scale,
+          y: view.oy + (mapMsg.info.height - row)*view.scale};
+}
+function pixToWorld(cx, cy){
+  const o = mapMsg.info.origin.position, res = mapMsg.info.resolution;
+  const col = (cx - view.ox)/view.scale;
+  const row = mapMsg.info.height - (cy - view.oy)/view.scale;
+  return {x: o.x + col*res, y: o.y + row*res};
+}
+function drawMap(){
+  const CW = mapCanvas.width, CH = mapCanvas.height;
+  mctx.fillStyle = "#0b0b0b"; mctx.fillRect(0,0,CW,CH);
+  if (!mapImg){ return; }
+  const w = mapImg.width, h = mapImg.height;
+  const scale = Math.min(CW/w, CH/h);
+  view = {scale, ox:(CW - w*scale)/2, oy:(CH - h*scale)/2};
+  mctx.imageSmoothingEnabled = false;
+  mctx.drawImage(mapImg, view.ox, view.oy, w*scale, h*scale);
+  if (goalWorld){                                  // goal marker + heading
+    const g = worldToPix(goalWorld.x, goalWorld.y);
+    mctx.strokeStyle = "#3fb950"; mctx.fillStyle = "#3fb950"; mctx.lineWidth = 2;
+    mctx.beginPath(); mctx.arc(g.x, g.y, 7, 0, 2*Math.PI); mctx.stroke();
+    if (goalWorld.yaw == null){                    // not aimed yet -> crosshair
+      mctx.beginPath(); mctx.moveTo(g.x-11,g.y); mctx.lineTo(g.x+11,g.y);
+      mctx.moveTo(g.x,g.y-11); mctx.lineTo(g.x,g.y+11); mctx.stroke();
+    } else {                                        // heading arrow
+      const t = worldToPix(goalWorld.x + 0.7*Math.cos(goalWorld.yaw),
+                           goalWorld.y + 0.7*Math.sin(goalWorld.yaw));
+      const a = Math.atan2(t.y - g.y, t.x - g.x);
+      mctx.beginPath(); mctx.moveTo(g.x, g.y); mctx.lineTo(t.x, t.y); mctx.stroke();
+      mctx.beginPath(); mctx.moveTo(t.x, t.y);
+      mctx.lineTo(t.x - 8*Math.cos(a-0.4), t.y - 8*Math.sin(a-0.4));
+      mctx.lineTo(t.x - 8*Math.cos(a+0.4), t.y - 8*Math.sin(a+0.4));
+      mctx.closePath(); mctx.fill();
+    }
+  }
+  const rp = robotInMap();                         // robot arrow
+  if (rp){
+    const p = worldToPix(rp.x, rp.y);
+    mctx.save(); mctx.translate(p.x, p.y); mctx.rotate(-rp.yaw);
+    mctx.fillStyle = "#0d6efd";
+    mctx.beginPath(); mctx.moveTo(10,0); mctx.lineTo(-7,-7);
+    mctx.lineTo(-7,7); mctx.closePath(); mctx.fill();
+    mctx.restore();
+  }
+}
+setInterval(() => { if (mapImg) drawMap(); }, 200);   // refresh robot/goal @5Hz
+
+// ---- autonomous mode toggle + tap + stop ----
+const navChk = document.getElementById("navmode");
+let navMode = false;
+navChk.addEventListener("change", () => {
+  navMode = navChk.checked;
+  mapCanvas.classList.toggle("armed", navMode);
+  if (navMode) stop();                 // halt manual motion; loop then pauses publishing
+  else { setExplore(false); setFollow(false); }   // leaving autonomous -> stop autonomy modes
+});
+
+// ---- auto-explore + follow toggles ----
+// Each just gates its node via a Bool topic. Enabling either forces autonomous mode
+// (so manual cmd_vel pauses) and turns the other off -- only one /cmd_vel owner at a time.
+const exploreChk = document.getElementById("explore");
+const followChk = document.getElementById("follow");
+function setExplore(on){
+  if (exploreChk.checked !== on) exploreChk.checked = on;
+  pub("/go2/explore_enable", {data: on});
+}
+function setFollow(on){
+  if (followChk.checked !== on) followChk.checked = on;
+  pub("/go2/follow_enable", {data: on});
+}
+function armAutonomous(){ navChk.checked = true; navMode = true; mapCanvas.classList.add("armed"); stop(); }
+exploreChk.addEventListener("change", () => {
+  const on = exploreChk.checked;
+  pub("/go2/explore_enable", {data: on});
+  if (on) { setFollow(false); if (!navMode) armAutonomous(); }
+});
+followChk.addEventListener("change", () => {
+  const on = followChk.checked;
+  pub("/go2/follow_enable", {data: on});
+  if (on) { setExplore(false); if (!navMode) armAutonomous(); }
+});
+function sendGoal(x, y, yaw){
+  pub("/goal_pose", {header:{frame_id:"map", stamp:{sec:0, nanosec:0}},
+      pose:{position:{x, y, z:0},
+            orientation:{x:0, y:0, z:Math.sin(yaw/2), w:Math.cos(yaw/2)}}});
+}
+function canvasToWorld(e){
+  const r = mapCanvas.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * mapCanvas.width / r.width;
+  const cy = (e.clientY - r.top)  * mapCanvas.height / r.height;
+  return pixToWorld(cx, cy);
+}
+// Press = place goal, drag = aim final heading, release = send.
+// A plain tap (no drag) defaults the heading to the travel direction.
+let goalDrag = null;
+mapCanvas.addEventListener("pointerdown", (e) => {
+  if (!navMode || !mapMsg) return;
+  mapCanvas.setPointerCapture(e.pointerId);
+  goalDrag = canvasToWorld(e);
+  goalWorld = {x: goalDrag.x, y: goalDrag.y, yaw: null};
+  drawMap();
+});
+mapCanvas.addEventListener("pointermove", (e) => {
+  if (!goalDrag) return;
+  const w = canvasToWorld(e);
+  const dx = w.x - goalDrag.x, dy = w.y - goalDrag.y;
+  goalWorld.yaw = Math.hypot(dx, dy) > 0.15 ? Math.atan2(dy, dx) : null;
+  drawMap();
+});
+mapCanvas.addEventListener("pointerup", () => {
+  if (!goalDrag) return;
+  let yaw = goalWorld.yaw;
+  if (yaw === null) {                       // tap: face the way it travels
+    const rp = robotInMap();
+    yaw = rp ? Math.atan2(goalDrag.y - rp.y, goalDrag.x - rp.x) : 0;
+    goalWorld.yaw = yaw;
+  }
+  sendGoal(goalDrag.x, goalDrag.y, yaw);
+  goalDrag = null; drawMap();
+});
+document.getElementById("navstop").addEventListener("click", () => {
+  const rp = robotInMap();             // goal = current pose -> Nav2 stops here
+  if (rp) sendGoal(rp.x, rp.y, rp.yaw);
+  goalWorld = null;
+  navChk.checked = false; navMode = false; mapCanvas.classList.remove("armed");
+  setExplore(false); setFollow(false); // stopping nav also stops autonomy modes
+});
+
+connect();
+</script>
+</body>
+</html>

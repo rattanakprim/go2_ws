@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>go2_controller</name>
+  <version>0.1.0</version>
+  <description>
+    Custom velocity/teleop controller for the Unitree Go2, simulated in MuJoCo.
+    Subscribes to /cmd_vel and drives a crawl gait; publishes /joint_states and /odom.
+  </description>
+  <maintainer email="orotha37@gmail.com">nak</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <!-- teleop_twist_keyboard provides the keyboard driver for /cmd_vel -->
+  <exec_depend>teleop_twist_keyboard</exec_depend>
+  <!-- joy provides the gamepad driver (/joy) for the joystick node -->
+  <exec_depend>joy</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

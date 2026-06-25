@@ -1,0 +1,78 @@
+<!--
+  Go2 scene + IMU sensors + a few obstacles (lives next to scene.xml so relative
+  includes resolve). IMU sensors on the "imu" site; obstacles (group 0) give the
+  camera/lidar something to see. The robot's own geoms are groups 2/3, which the
+  lidar ray-caster masks out.
+-->
+<mujoco model="go2_imu_scene">
+  <include file="scene.xml"/>
+
+  <asset>
+    <!-- Real soccer-ball texture (white + black pentagons) so MobileNet recognises it
+         as a "sports ball" -- a procedural checker sphere was not detected at all. -->
+    <texture name="ball_tex" type="2d" file="soccer.png"/>
+    <material name="ball_mat" texture="ball_tex" texuniform="false"/>
+  </asset>
+
+  <sensor>
+    <framequat     name="imu_quat" objtype="site" objname="imu"/>
+    <gyro          name="imu_gyro" site="imu"/>
+    <accelerometer name="imu_acc"  site="imu"/>
+  </sensor>
+
+  <worldbody>
+    <!-- Bounding walls (6 m half-extent, 1 m tall) so the 2D lidar always has
+         rich features to scan-match against. Without an enclosed structure,
+         slam_toolbox can't localize on an open plane and the map drifts. -->
+    <geom name="wall_px" type="box" group="0" pos="6 0 0.5" size="0.1 6.0 0.5"
+          rgba="0.55 0.55 0.6 1"/>
+    <geom name="wall_nx" type="box" group="0" pos="-6 0 0.5" size="0.1 6.0 0.5"
+          rgba="0.55 0.55 0.6 1"/>
+    <geom name="wall_py" type="box" group="0" pos="0 6 0.5" size="6.0 0.1 0.5"
+          rgba="0.55 0.55 0.6 1"/>
+    <geom name="wall_ny" type="box" group="0" pos="0 -6 0.5" size="6.0 0.1 0.5"
+          rgba="0.55 0.55 0.6 1"/>
+
+    <!-- obstacles for camera/lidar + obstacle avoidance (group 0, ~0.5 m tall) -->
+    <geom name="obs_front" type="box" group="0" pos="2.0 0 0.25" size="0.1 1.0 0.25"
+          rgba="0.8 0.3 0.3 1"/>
+    <geom name="obs_left"  type="box" group="0" pos="1.0 1.2 0.25" size="0.3 0.3 0.25"
+          rgba="0.3 0.6 0.8 1"/>
+    <geom name="obs_right" type="box" group="0" pos="1.4 -1.0 0.25" size="0.25 0.25 0.25"
+          rgba="0.4 0.8 0.4 1"/>
+    <geom name="obs_back"  type="box" group="0" pos="-1.6 0 0.25" size="0.1 1.0 0.25"
+          rgba="0.8 0.7 0.3 1"/>
+
+    <!-- extra obstacles scattered through the room (origin kept clear for spawn;
+         navigable gaps left between them for Nav2 to plan around) -->
+    <geom name="obs_c1" type="box"      group="0" pos="-3.0 -2.5 0.25" size="0.3 0.3 0.25"
+          rgba="0.70 0.40 0.70 1"/>
+    <geom name="obs_c2" type="box"      group="0" pos="3.2 -3.0 0.25"  size="0.35 0.35 0.25"
+          rgba="0.30 0.70 0.70 1"/>
+    <geom name="obs_c3" type="box"      group="0" pos="-3.8 2.8 0.25"  size="0.3 0.3 0.25"
+          rgba="0.80 0.50 0.30 1"/>
+    <geom name="obs_c4" type="box"      group="0" pos="2.6 3.0 0.25"   size="0.6 0.2 0.25"
+          rgba="0.50 0.50 0.80 1"/>
+    <geom name="obs_c5" type="box"      group="0" pos="-2.6 1.0 0.25"  size="0.2 0.9 0.25"
+          rgba="0.70 0.70 0.40 1"/>
+    <geom name="obs_c6" type="box"      group="0" pos="0.5 -3.3 0.25"  size="0.9 0.2 0.25"
+          rgba="0.40 0.70 0.50 1"/>
+    <geom name="obs_c7" type="cylinder" group="0" pos="3.5 1.5 0.25"   size="0.3 0.25"
+          rgba="0.80 0.40 0.40 1"/>
+    <geom name="obs_c8" type="cylinder" group="0" pos="-1.0 -3.0 0.25" size="0.25 0.25"
+          rgba="0.45 0.55 0.80 1"/>
+
+    <!-- Soccer ball for the COCO/NN follower to chase. FREE body so you can push it with
+         the robot or drag it in the MuJoCo viewer (double-click to select, then Ctrl+drag /
+         Ctrl+right-drag) and watch the robot follow. Rolling friction (3rd friction term +
+         condim 6) so it settles in view instead of rolling away. ~ a real size-5 ball. -->
+    <body name="sports_ball" pos="1.6 0 0.2">
+      <freejoint name="ball_free"/>
+      <!-- Solid vivid magenta (no obstacle/floor/wall uses this hue) so the color-blob
+           tracker segments it reliably at ANY distance -- unlike the NN, which mis-labels
+           the rendered ball. -->
+      <geom name="sports_ball" type="sphere" group="0" size="0.2" mass="0.43"
+            rgba="0.95 0.05 0.80 1" friction="1.0 0.01 0.005" condim="6"/>
+    </body>
+  </worldbody>
+</mujoco>

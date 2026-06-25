@@ -185,8 +185,17 @@ class Go2Explorer(Node):
         self.nav.send_goal_async(goal).add_done_callback(self._on_goal_response)
 
     def _on_goal_response(self, future):
-        handle = future.result()
-        if not handle.accepted:
+        # Guard the future: if the action call errored, NOT clearing goal_active would
+        # wedge the explorer forever (it only plans when goal_active is False).
+        try:
+            handle = future.result()
+            accepted = handle is not None and handle.accepted
+        except Exception as e:
+            self.get_logger().warn(f"Goal send failed ({e}); blacklisting.")
+            self._blacklist_current()
+            self.goal_active = False
+            return
+        if not accepted:
             self.get_logger().warn("Nav2 rejected the goal; blacklisting.")
             self._blacklist_current()
             self.goal_active = False
@@ -194,7 +203,13 @@ class Go2Explorer(Node):
         handle.get_result_async().add_done_callback(self._on_goal_result)
 
     def _on_goal_result(self, future):
-        status = future.result().status   # 4 == SUCCEEDED
+        try:
+            status = future.result().status   # 4 == SUCCEEDED
+        except Exception as e:
+            self.get_logger().warn(f"Goal result errored ({e}); blacklisting.")
+            self._blacklist_current()
+            self.goal_active = False
+            return
         if status == 4:
             self.get_logger().info("Reached frontier; replanning.")
         else:

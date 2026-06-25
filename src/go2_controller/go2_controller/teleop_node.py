@@ -381,8 +381,14 @@ class Go2TeleopNode(Node):
         odom.pose.pose.orientation.x = float(quat[1])
         odom.pose.pose.orientation.y = float(quat[2])
         odom.pose.pose.orientation.z = float(quat[3])
-        odom.twist.twist.linear.x = float(lin[0])
-        odom.twist.twist.linear.y = float(lin[1])
+        # Odometry.twist is in the child (base_link) frame, but MuJoCo's free-joint
+        # linear velocity is WORLD-frame -> rotate the planar part into the body by -yaw
+        # (Nav2's controller reads /odom for velocity feedback). Angular is already body.
+        yaw = math.atan2(2.0 * (quat[0]*quat[3] + quat[1]*quat[2]),
+                         1.0 - 2.0 * (quat[2]**2 + quat[3]**2))
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        odom.twist.twist.linear.x = float(lin[0] * cy + lin[1] * sy)
+        odom.twist.twist.linear.y = float(-lin[0] * sy + lin[1] * cy)
         odom.twist.twist.linear.z = float(lin[2])
         odom.twist.twist.angular.z = float(ang[2])
         self.odom_pub.publish(odom)
@@ -398,8 +404,7 @@ class Go2TeleopNode(Node):
             tf.transform.translation.z = float(pos[2])
             # Level the frame: yaw only (drop roll/pitch) so lidar_link stays
             # horizontal -> consistent with the yaw-only lidar scan, stable 2D SLAM.
-            yaw = math.atan2(2.0 * (quat[0]*quat[3] + quat[1]*quat[2]),
-                             1.0 - 2.0 * (quat[2]**2 + quat[3]**2))
+            # (yaw computed above for the odom twist.)
             tf.transform.rotation.z = math.sin(yaw / 2.0)
             tf.transform.rotation.w = math.cos(yaw / 2.0)
             self.tf_broadcaster.sendTransform(tf)

@@ -106,14 +106,17 @@ class Go2Follower(Node):
                   "max_lin": "max_lin", "lost_timeout": "lost_timeout",
                   "avoid_dist": "avoid_dist", "avoid_stop_dist": "avoid_stop_dist",
                   "avoid_gain": "avoid_gain"}
-        for p in params:
-            if p.name in fields:
-                setattr(self, fields[p.name], float(p.value))
-            elif p.name == "avoid_enable":
-                self.avoid_enable = bool(p.value)
-            elif p.name == "target_class":
-                self.target_class = str(p.value)
-                self.target_classes = {c.strip() for c in self.target_class.split(",")}
+        try:
+            for p in params:
+                if p.name in fields:
+                    setattr(self, fields[p.name], float(p.value))
+                elif p.name == "avoid_enable":
+                    self.avoid_enable = bool(p.value)
+                elif p.name == "target_class":
+                    self.target_class = str(p.value)
+                    self.target_classes = {c.strip() for c in self.target_class.split(",")}
+        except (ValueError, TypeError) as e:        # reject bad values cleanly, no traceback
+            return SetParametersResult(successful=False, reason=str(e))
         return SetParametersResult(successful=True)
 
     def _on_caminfo(self, msg):
@@ -176,8 +179,10 @@ class Go2Follower(Node):
         a = s.angle_min
         for r in s.ranges:
             if s.range_min < r < min(self.avoid_dist, s.range_max):
-                # |a| within forward arc, and a not near the ball direction
-                if abs(a) <= self.avoid_arc and abs(a - ball_bearing) > self.ball_exclude:
+                # |a| within forward arc, and a not near the ball direction (wrap the
+                # bearing difference to [-pi,pi] so it's correct near the +-pi seam)
+                d_ball = abs(math.atan2(math.sin(a - ball_bearing), math.cos(a - ball_bearing)))
+                if abs(a) <= self.avoid_arc and d_ball > self.ball_exclude:
                     if r < nearest:
                         nearest, nearest_ang = r, a
             a += s.angle_increment

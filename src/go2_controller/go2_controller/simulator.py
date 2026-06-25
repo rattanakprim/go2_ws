@@ -53,6 +53,7 @@ class Go2Sim:
             # trailing DOF to their model spawn (qpos0) and zero their velocity.
             if self.model.nq > 19:
                 self.data.qpos[19:] = self.model.qpos0[19:]
+            if self.model.nv > 18:           # qvel: robot = 18 dofs (6 base + 12 joints)
                 self.data.qvel[18:] = 0.0
         self.target_q = self.data.qpos[7:19].copy()
         mujoco.mj_forward(self.model, self.data)

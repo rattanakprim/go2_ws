@@ -42,7 +42,9 @@ class ColorTracker(Node):
     def _on_image(self, msg):
         if msg.encoding != "rgb8":
             return
-        img = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(
+        if len(msg.data) != msg.height * msg.width * 3:   # guard partial/garbled frames
+            return
+        img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
             msg.height, msg.width, 3).astype(np.int16)
         r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
         mask = ((r - g > self.rg_margin) & (b - g > self.rg_margin) &

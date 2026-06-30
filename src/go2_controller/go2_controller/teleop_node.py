@@ -19,22 +19,16 @@ from rclpy.time import Time
 from geometry_msgs.msg import Twist, TransformStamped, PoseStamped, PoseArray
 from tf2_ros import (TransformBroadcaster, StaticTransformBroadcaster,
                      Buffer, TransformListener)
-from sensor_msgs.msg import (
-    JointState, Imu, Image, CameraInfo, LaserScan, PointCloud2,
-)
+from sensor_msgs.msg import JointState, Imu
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String, Header, Float64MultiArray, Bool
+from std_msgs.msg import String, Float64MultiArray, Bool
 
-try:
-    from sensor_msgs_py import point_cloud2 as pc2
-    _HAVE_PC2 = True
-except ImportError:
-    _HAVE_PC2 = False
 from ament_index_python.packages import get_package_share_directory
 
 from .gait import TrotGait, GAITS
 from .routines import ROUTINES
 from .simulator import Go2Sim
+from .sensors import SensorPublisher
 
 
 def default_model_path():
@@ -60,15 +54,6 @@ class Go2TeleopNode(Node):
         self.declare_parameter("goal_yaw_tol", 0.1)    # rad, final-heading tolerance
         self.declare_parameter("kp", 300.0)
         self.declare_parameter("kd", 7.0)
-        self.declare_parameter("use_camera", True)
-        self.declare_parameter("use_lidar", True)
-        self.declare_parameter("camera_rate", 15.0)    # Hz
-        self.declare_parameter("camera_width", 320)
-        self.declare_parameter("camera_height", 240)
-        self.declare_parameter("lidar_rate", 10.0)     # Hz
-        self.declare_parameter("lidar_rays", 360)      # 1° resolution (better SLAM)
-        self.declare_parameter("lidar_range", 10.0)    # m
-        self.declare_parameter("lidar_cloud_rate", 8.0)  # Hz (3D PointCloud2)
 
         model_path = self.get_parameter("model_path").value
         use_viewer = self.get_parameter("use_viewer").value
@@ -170,27 +155,8 @@ class Go2TeleopNode(Node):
         self._route_i = 0
         self._route_active = False
 
-        # --- onboard sensors (camera + lidar) ---
-        self.cam_w = self.get_parameter("camera_width").value
-        self.cam_h = self.get_parameter("camera_height").value
-        self._cam_failed = False
-        if self.get_parameter("use_camera").value and self.sim.has_camera():
-            self.img_pub = self.create_publisher(Image, "camera/image_raw", 10)
-            self.caminfo_pub = self.create_publisher(CameraInfo, "camera/camera_info", 10)
-            self.create_timer(1.0 / self.get_parameter("camera_rate").value,
-                              self.camera_tick)
-        if self.get_parameter("use_lidar").value:
-            self.lidar_rays = self.get_parameter("lidar_rays").value
-            self.lidar_range = self.get_parameter("lidar_range").value
-            self.scan_pub = self.create_publisher(LaserScan, "scan", 10)
-            self.create_timer(1.0 / self.get_parameter("lidar_rate").value,
-                              self.lidar_tick)
-            if _HAVE_PC2:                          # 3D point cloud for RViz
-                self.points_pub = self.create_publisher(PointCloud2, "points", 5)
-                self.create_timer(1.0 / self.get_parameter("lidar_cloud_rate").value,
-                                  self.cloud_tick)
-            else:
-                self.get_logger().warn("sensor_msgs_py missing; /points (3D) disabled")
+        # --- onboard sensors (camera + lidar): owns its own publishers/timers ---
+        self.sensors = SensorPublisher(self, self.sim)
 
         if use_viewer:
             try:
@@ -664,64 +630,6 @@ class Go2TeleopNode(Node):
             m.linear_acceleration.y = float(acc[1])
             m.linear_acceleration.z = float(acc[2])
             self.imu_pub.publish(m)
-
-    def camera_tick(self):
-        if self._cam_failed:
-            return
-        try:
-            img = self.sim.render_camera("front_camera", self.cam_w, self.cam_h)
-        except Exception as exc:                 # GL context issue, headless, etc.
-            self._cam_failed = True
-            self.get_logger().warn(f"camera disabled ({exc})")
-            return
-        now = self.get_clock().now().to_msg()
-        h, w = img.shape[0], img.shape[1]
-
-        msg = Image()
-        msg.header.stamp = now
-        msg.header.frame_id = "camera_link"
-        msg.height, msg.width = h, w
-        msg.encoding = "rgb8"
-        msg.is_bigendian = 0
-        msg.step = w * 3
-        msg.data = img.tobytes()
-        self.img_pub.publish(msg)
-
-        # minimal CameraInfo (pinhole from the camera fovy = 58 deg)
-        info = CameraInfo()
-        info.header = msg.header
-        info.height, info.width = h, w
-        f = h / (2.0 * math.tan(math.radians(58.0) / 2.0))
-        cx, cy = w / 2.0, h / 2.0
-        info.k = [f, 0.0, cx, 0.0, f, cy, 0.0, 0.0, 1.0]
-        info.p = [f, 0.0, cx, 0.0, 0.0, f, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
-        info.distortion_model = "plumb_bob"
-        self.caminfo_pub.publish(info)
-
-    def lidar_tick(self):
-        ranges = self.sim.lidar_scan(self.lidar_rays, self.lidar_range)
-        if ranges is None:
-            return
-        n = len(ranges)
-        scan = LaserScan()
-        scan.header.stamp = self.get_clock().now().to_msg()
-        scan.header.frame_id = "lidar_link"
-        scan.angle_min = -math.pi
-        scan.angle_max = math.pi - (2.0 * math.pi / n)
-        scan.angle_increment = 2.0 * math.pi / n
-        scan.range_min = 0.1
-        scan.range_max = float(self.lidar_range)
-        scan.ranges = ranges.tolist()
-        self.scan_pub.publish(scan)
-
-    def cloud_tick(self):
-        pts = self.sim.lidar_cloud(range_max=self.lidar_range)
-        if pts is None:
-            return
-        header = Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = "lidar_link"
-        self.points_pub.publish(pc2.create_cloud_xyz32(header, pts.tolist()))
 
 
 def main(args=None):

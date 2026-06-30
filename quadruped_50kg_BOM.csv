@@ -1,0 +1,22 @@
+Subsystem,Component,Example Part / Model,Qty,Budget-Custom Unit USD,Budget-Custom Subtotal,Premium-B2 Unit USD,Premium-B2 Subtotal,GeomOpt Unit USD,GeomOpt Subtotal,Notes,Supplier URL
+Actuators,Hip-pitch + knee motor (8 joints),"Custom: T-Motor U13 II + planetary 8:1 + moteus n1 + AS5047 / B2 motor / CubeMars AK80-64",8,1000,8000,2000,16000,650,5200,"Custom build is per-joint integration; B2 is buy-and-bolt; AK80-64 only viable with geometry-optimized legs","https://store.tmotor.com | https://mjbots.com | https://shop.unitree.com | https://www.cubemars.com"
+Actuators,Hip-abduction motor (4 joints),"Custom: U13+8:1+moteus / B2 motor / CubeMars AK70-10",4,1000,4000,2000,8000,400,1600,"Abduction joint needs less torque (~60-100 N·m)","https://www.cubemars.com | https://shop.unitree.com | https://mjbots.com"
+Compute,Onboard GPU computer,"Jetson Orin NX 16GB (budget) / Jetson AGX Orin 64GB Dev Kit (premium)",1,900,900,1999,1999,900,900,"Runs RL policy + Nav2 + SLAM + perception","https://www.seeedstudio.com/reComputer-Jetson-Series.html"
+Compute,Low-level control MCU,"Teensy 4.1 / STM32H7 (CAN-FD bridge)",1,40,40,40,40,40,40,"Real-time joint command / safety loop","https://www.pjrc.com/store/teensy41.html"
+Sensors,3D LiDAR,"Livox Mid-360",1,749,749,899,899,749,749,"Required for SLAM + Nav2; has built-in IMU","https://www.livoxtech.com/mid-360"
+Sensors,Depth + RGB cameras,"Intel RealSense D435i",2,334,668,334,668,334,668,"Front + rear for follow / obstacle avoidance","https://www.intelrealsense.com/depth-camera-d435i/"
+Sensors,Dedicated IMU,"WitMotion HWT905 (budget) / VectorNav VN-100 (premium)",1,200,200,800,800,200,200,"Improves state estimation for locomotion","https://www.wit-motion.com | https://www.vectornav.com/products/detail/vn-100"
+Sensors,Foot contact sensors,"Optical / FSR contact switch",4,50,200,50,200,50,200,"Contact detection for gait + odometry","https://www.adafruit.com/category/35"
+Power,Battery pack,"14S LiPo 10Ah (budget) / 14S Li-ion 30Ah (premium)",1,500,500,1400,1400,700,700,"~48-58V; sized to motor count / robot mass","https://www.maxamps.com"
+Power,BMS,"14S smart BMS (Daly)",1,150,150,200,200,150,150,"Cell balancing + protection","https://www.dalyelec.com"
+Power,Charger,"14S balance charger / PSU (iCharger)",1,250,250,300,300,250,250,"","https://www.progressiverc.com"
+Power,Power distribution board,"Custom PDB w/ fuses + shunt (JLCPCB fab)",1,200,200,250,250,200,200,"","https://jlcpcb.com"
+Power,Wiring / connectors / fuses,"XT90 / AS150 / silicone wire (Amass)",1,300,300,400,400,300,300,"","https://www.amass-connector.com"
+Power,E-stop + contactor,"Main contactor + wireless E-stop",1,150,150,200,200,150,150,"Safety critical for a 90+ kg machine","https://www.digikey.com"
+Structure,Chassis + leg links,"CNC 6061 aluminum + motor housings",1,1800,1800,4500,4500,2200,2200,"Budget=DIY mill/print; Premium=outsourced CNC; GeomOpt has extra linkage parts","https://www.protolabs.com | https://www.pcbway.com/rapid-prototyping/cnc-machining/"
+Structure,Bearings / shafts / hardware,"Crossed-roller + ball bearings, fasteners",1,400,400,500,500,400,400,"","https://www.mcmaster.com"
+Structure,Feet,"Rubber compliant feet",4,40,160,50,200,40,160,"","https://www.mcmaster.com"
+Structure,Knee linkage hardware,"4-bar linkage / belt drive (GeomOpt only)",1,0,0,0,0,400,400,"Routes load axially to cut joint torque ~40%","https://www.mcmaster.com"
+Subtotal,,,,,18667,,36556,,14467,,
+Contingency,Dev spares / broken parts / iteration (~17%),,,,3173,,6213,,2459,"Legs break things during gait tuning - this is real",
+TOTAL,,,,,21840,,42769,,16926,"USD hardware only; excludes labor (~6-18 mo) and tools",

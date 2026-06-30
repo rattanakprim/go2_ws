@@ -22,4 +22,5 @@ src/go2_ros2_sdk/
 .vscode/
 .idea/
 *.swp
+*.bak
 .DS_Store

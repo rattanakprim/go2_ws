@@ -5,175 +5,354 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Go2 Phone Control</title>
+<meta name="theme-color" content="#0b0e14">
+<title>Go2 · Control Center</title>
 <style>
-  :root { --bg:#111; --panel:#1c1c1c; --line:#333; --accent:#0d6efd; --danger:#d9534f;
-          --txt:#eee; --muted:#888; }
+  :root {
+    --bg:#0b0e14; --bg2:#0f131c; --panel:#141926; --panel2:#1a2030;
+    --line:#232a3a; --line2:#2e374a;
+    --accent:#3b82f6; --accent2:#2563eb; --good:#22c55e; --warn:#f59e0b;
+    --danger:#ef4444; --purple:#8b5cf6;
+    --txt:#e7ecf5; --muted:#8a93a6; --muted2:#5d6679;
+    --r:14px; --r-sm:10px;
+  }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent;
       -webkit-user-select:none; user-select:none; touch-action:manipulation; }
-  html,body { margin:0; background:var(--bg); color:var(--txt);
-              font-family:-apple-system,Roboto,Segoe UI,sans-serif; }
-  .wrap { max-width:560px; margin:0 auto; padding:8px; }
-  h2 { font-size:15px; margin:14px 4px 6px; color:var(--muted); font-weight:600;
-       text-transform:uppercase; letter-spacing:.05em; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
-          padding:10px; }
-  /* status bar */
-  #bar { display:flex; align-items:center; gap:8px; padding:6px 10px;
-         background:var(--panel); border:1px solid var(--line); border-radius:10px;
-         font-size:13px; position:sticky; top:0; z-index:5; }
-  #dot { width:10px; height:10px; border-radius:50%; background:var(--danger); flex:none; }
-  #dot.ok { background:#3fb950; }
-  #vel { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
-  /* sensors */
-  .sensors { display:flex; gap:8px; }
+  html,body { margin:0; background:var(--bg); color:var(--txt); min-height:100vh;
+              font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+              font-size:14px; line-height:1.4; }
+  body { background:
+    radial-gradient(1200px 600px at 50% -200px, #16203a 0%, transparent 60%),
+    var(--bg); }
+  .app { max-width:600px; margin:0 auto; padding:0 12px 90px; }
+
+  /* ---------- top bar ---------- */
+  header { position:sticky; top:0; z-index:20; padding:12px 0 8px;
+           background:linear-gradient(var(--bg) 70%, transparent);
+           backdrop-filter:blur(6px); }
+  .brand { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .logo { width:34px; height:34px; border-radius:9px; flex:none;
+          background:linear-gradient(135deg, var(--accent), var(--purple));
+          display:grid; place-items:center; font-weight:800; font-size:15px;
+          color:#fff; box-shadow:0 4px 14px #3b82f655; }
+  .brand .title { font-weight:700; font-size:16px; letter-spacing:.2px; }
+  .brand .sub { font-size:11px; color:var(--muted); }
+  #bar { display:flex; align-items:center; gap:9px; padding:9px 12px;
+         background:var(--panel); border:1px solid var(--line); border-radius:12px;
+         font-size:13px; }
+  #dot { width:9px; height:9px; border-radius:50%; background:var(--danger); flex:none;
+         box-shadow:0 0 0 0 #ef444466; animation:pulse 1.6s infinite; }
+  #dot.ok { background:var(--good); box-shadow:0 0 0 0 #22c55e66; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 currentColor} 70%{box-shadow:0 0 0 7px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+  #state { font-weight:600; }
+  #vel { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums;
+         font-size:12px; padding:3px 8px; background:var(--bg2); border-radius:7px;
+         border:1px solid var(--line); }
+
+  /* ---------- tabs ---------- */
+  nav.tabs { display:flex; gap:6px; margin-top:10px; overflow-x:auto;
+             scrollbar-width:none; -ms-overflow-style:none; }
+  nav.tabs::-webkit-scrollbar { display:none; }
+  .tab { flex:none; display:flex; align-items:center; gap:7px; padding:9px 14px;
+         border-radius:11px; font-size:13px; font-weight:600; color:var(--muted);
+         background:var(--panel); border:1px solid var(--line); cursor:pointer;
+         white-space:nowrap; transition:.15s; }
+  .tab .ic { font-size:15px; }
+  .tab:active { transform:scale(.96); }
+  .tab.active { color:#fff; background:linear-gradient(135deg,var(--accent2),var(--accent));
+                border-color:var(--accent); box-shadow:0 4px 14px #3b82f644; }
+
+  /* ---------- panels ---------- */
+  .panel { display:none; animation:fade .2s ease; }
+  .panel.active { display:block; }
+  @keyframes fade { from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none} }
+  h2 { font-size:11px; margin:18px 4px 8px; color:var(--muted2); font-weight:700;
+       text-transform:uppercase; letter-spacing:.09em; display:flex; align-items:center; gap:7px; }
+  h2::after { content:""; flex:1; height:1px;
+              background:linear-gradient(90deg,var(--line),transparent); }
+  .card { background:linear-gradient(180deg,var(--panel),var(--bg2));
+          border:1px solid var(--line); border-radius:var(--r);
+          padding:14px; box-shadow:0 1px 0 #ffffff05 inset; }
+  .card + .card { margin-top:10px; }
+
+  /* ---------- sensors ---------- */
+  .sensors { display:flex; gap:10px; }
   .sensors > div { flex:1; }
-  .sensors .lbl { font-size:11px; color:var(--muted); margin-bottom:4px; }
-  #cam { width:100%; aspect-ratio:1/1; object-fit:cover; background:#222;
-         border-radius:8px; display:block; }
-  #lidar { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:8px;
-           display:block; }
-  /* joystick + dpad */
-  .drive { display:flex; gap:12px; align-items:center; }
-  #joy { width:150px; height:150px; flex:none; background:#f0f0f0; border-radius:50%;
-         position:relative; touch-action:none; }
-  #knob { width:46px; height:46px; border-radius:50%; background:var(--accent);
-          position:absolute; left:52px; top:52px; box-shadow:0 2px 6px #0008; }
-  .pad { flex:1; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
-  button { font-size:15px; font-weight:600; color:var(--txt); background:#2a2a2a;
-           border:1px solid var(--line); border-radius:10px; padding:14px 4px;
-           cursor:pointer; }
-  button:active { background:#383838; }
-  button.on { outline:2px solid var(--accent); background:#243; }
-  .pad .stop { background:var(--danger); color:#fff; border-color:var(--danger); }
+  .lbl { font-size:11px; color:var(--muted); margin-bottom:6px; display:flex;
+         align-items:center; gap:5px; font-weight:600; }
+  .lbl code { font-weight:400; color:var(--muted2); font-size:10px; }
+  #cam { width:100%; aspect-ratio:1/1; object-fit:cover; background:#0b0b0b;
+         border-radius:var(--r-sm); display:block; border:1px solid var(--line); }
+  #lidar { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:var(--r-sm);
+           display:block; border:1px solid var(--line); }
+
+  /* ---------- buttons ---------- */
+  button { font-size:14px; font-weight:600; color:var(--txt); background:var(--panel2);
+           border:1px solid var(--line2); border-radius:var(--r-sm); padding:13px 6px;
+           cursor:pointer; transition:.12s; }
+  button:active { transform:scale(.96); background:#222b3e; }
+  button.on { outline:2px solid var(--accent); background:#1d3056; }
+  .accent { background:linear-gradient(135deg,var(--accent2),var(--accent));
+            border-color:var(--accent); color:#fff; }
+  .purple { background:linear-gradient(135deg,#7c3aed,var(--purple));
+            border-color:var(--purple); color:#fff; }
+  .good   { background:linear-gradient(135deg,#16a34a,var(--good));
+            border-color:var(--good); color:#fff; }
+
+  /* ---------- drive ---------- */
+  .drive { display:flex; gap:16px; align-items:center; }
+  #joy { width:158px; height:158px; flex:none; border-radius:50%; position:relative;
+         touch-action:none;
+         background:radial-gradient(circle at 50% 40%, #2a3450, #161c2b);
+         border:1px solid var(--line2); box-shadow:inset 0 6px 18px #0008; }
+  #joy::before { content:""; position:absolute; inset:26px; border-radius:50%;
+                 border:1px dashed #ffffff14; }
+  #knob { width:54px; height:54px; border-radius:50%; position:absolute; left:52px; top:52px;
+          background:radial-gradient(circle at 40% 35%, #60a5fa, var(--accent2));
+          box-shadow:0 4px 14px #0009, 0 0 0 5px #3b82f622; }
+  .pad { flex:1; display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .pad .stop { background:linear-gradient(135deg,#dc2626,var(--danger));
+               color:#fff; border-color:var(--danger); }
   .pad .sp { visibility:hidden; }
-  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
-  .accent { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .purple { background:#6f42c1; border-color:#6f42c1; color:#fff; }
-  /* sliders */
-  .row { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
-  .row label { width:62px; color:var(--muted); flex:none; }
-  .row output { width:46px; text-align:right; color:var(--txt);
-                font-variant-numeric:tabular-nums; flex:none; }
-  input[type=range] { flex:1; accent-color:var(--accent); height:28px; }
-  select { width:100%; padding:12px; font-size:15px; background:#2a2a2a; color:var(--txt);
-           border:1px solid var(--line); border-radius:10px; }
-  .note { font-size:11px; color:var(--muted); margin:6px 2px 0; }
-  /* map / autonomy */
-  #map { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:8px;
-         display:block; touch-action:none; cursor:crosshair; }
-  .navrow { display:flex; align-items:center; gap:10px; font-size:14px;
-            margin-bottom:8px; }
-  .navrow input { width:22px; height:22px; accent-color:var(--accent); }
-  #map.armed { outline:2px solid var(--accent); }
-  #navstop { margin-top:6px; width:100%; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .grid2 { display:grid; grid-template-columns:repeat(2,1fr); gap:7px; }
+
+  /* ---------- sliders ---------- */
+  .row { display:flex; align-items:center; gap:12px; margin:10px 0; font-size:13px; }
+  .row label { width:64px; color:var(--muted); flex:none; font-weight:600; }
+  .row output { width:48px; text-align:right; color:var(--txt);
+                font-variant-numeric:tabular-nums; flex:none;
+                background:var(--bg2); padding:3px 6px; border-radius:6px;
+                border:1px solid var(--line); font-size:12px; }
+  input[type=range] { flex:1; accent-color:var(--accent); height:30px; }
+  select { width:100%; padding:13px; font-size:14px; background:var(--panel2); color:var(--txt);
+           border:1px solid var(--line2); border-radius:var(--r-sm); font-weight:600; }
+  .note { font-size:11px; color:var(--muted); margin:8px 2px 0; line-height:1.5; }
+
+  /* ---------- toggles ---------- */
+  .navrow { display:flex; align-items:center; gap:11px; font-size:13.5px;
+            margin-bottom:10px; font-weight:500; }
+  .navrow input[type=checkbox] { width:0; height:0; opacity:0; position:absolute; }
+  .navrow .sw { width:42px; height:24px; border-radius:13px; background:var(--line2);
+                position:relative; flex:none; transition:.18s; }
+  .navrow .sw::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px;
+                       border-radius:50%; background:#fff; transition:.18s; }
+  .navrow input:checked + .sw { background:var(--accent); }
+  .navrow input:checked + .sw::after { transform:translateX(18px); }
+
+  /* ---------- map ---------- */
+  .mapc { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:var(--r-sm);
+         display:block; touch-action:none; cursor:crosshair; border:1px solid var(--line); }
+  .mapc.armed { outline:2px solid var(--accent); outline-offset:-1px; }
+  #navstop { margin-top:8px; width:100%; }
+  .chip { display:inline-flex; align-items:center; gap:5px; font-size:11px;
+          color:var(--muted); background:var(--bg2); border:1px solid var(--line);
+          padding:3px 8px; border-radius:7px; }
+
+  footer { text-align:center; margin:20px 0; font-size:11px; color:var(--muted2); }
+  footer code { color:var(--muted); }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app">
 
-  <div id="bar"><span id="dot"></span><span id="state">connecting…</span>
-    <span id="vel">stopped</span></div>
-
-  <h2>Sensors</h2>
-  <div class="card sensors">
-    <div><div class="lbl">Camera /camera/image_raw</div>
-      <img id="cam" alt="camera"></div>
-    <div><div class="lbl">Lidar /scan (fwd = up)</div>
-      <canvas id="lidar" width="240" height="240"></canvas></div>
-  </div>
-
-  <h2>Map / Autonomy (SLAM + Nav2)</h2>
-  <div class="card">
-    <label class="navrow">
-      <input type="checkbox" id="navmode"> Autonomous mode — tap the map to set a goal
-    </label>
-    <label class="navrow">
-      <input type="checkbox" id="explore"> 🔍 Auto-explore (frontier mapping — needs explore node)
-    </label>
-    <label class="navrow">
-      <input type="checkbox" id="follow"> 🎯 Follow object (camera — needs follow node)
-    </label>
-    <canvas id="map" width="320" height="320"></canvas>
-    <div class="note">Blue dot/arrow = robot. Drive around to build the map. In
-      autonomous mode, tapping a free spot sends a Nav2 goal and manual driving
-      pauses. <button id="navstop">■ Stop navigation</button></div>
-  </div>
-
-  <h2>Drive</h2>
-  <div class="card drive">
-    <div id="joy"><div id="knob"></div></div>
-    <div class="pad">
-      <button class="sp"></button>
-      <button data-fx="1">↑ Fwd</button>
-      <button class="sp"></button>
-      <button data-fy="1">← Str</button>
-      <button class="stop" id="stop">■ STOP</button>
-      <button data-fy="-1">Str →</button>
-      <button data-fz="1">⟲ L</button>
-      <button data-fx="-1">↓ Back</button>
-      <button data-fz="-1">⟳ R</button>
+  <header>
+    <div class="brand">
+      <div class="logo">G2</div>
+      <div>
+        <div class="title">Go2 Control Center</div>
+        <div class="sub">Unitree Go2 · quadruped + Piper arm</div>
+      </div>
     </div>
-  </div>
+    <div id="bar"><span id="dot"></span><span id="state">connecting…</span>
+      <span id="vel">stopped</span></div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="dash"><span class="ic">📊</span>Dashboard</button>
+      <button class="tab" data-tab="drive"><span class="ic">🕹️</span>Drive</button>
+      <button class="tab" data-tab="auto"><span class="ic">🗺️</span>Autonomy</button>
+      <button class="tab" data-tab="posture"><span class="ic">🐕</span>Posture</button>
+      <button class="tab" data-tab="pose"><span class="ic">🎚️</span>Body Pose</button>
+      <button class="tab" data-tab="arm"><span class="ic">🦾</span>Arm</button>
+    </nav>
+  </header>
 
-  <h2>Speed</h2>
-  <div class="card">
-    <div class="row"><label>linear</label>
-      <input id="lin" type="range" min="0" max="0.5" step="0.05" value="0.3">
-      <output id="linv">0.30</output></div>
-    <div class="row"><label>angular</label>
-      <input id="ang" type="range" min="0" max="1.5" step="0.1" value="0.8">
-      <output id="angv">0.80</output></div>
-  </div>
-
-  <h2>Posture / Actions</h2>
-  <div class="card">
-    <div class="grid4">
-      <button data-act="stand">⮝ Stand</button>
-      <button data-act="sit" class="purple">⤓ Sit</button>
-      <button data-act="liedown">Lie</button>
-      <button data-act="crouch">Crouch</button>
-      <button data-act="jump" class="accent">⤒ Jump</button>
-      <button data-act="wave">👋 Wave</button>
-      <button data-act="shake">🤝 Shake</button>
-      <button data-act="dance">💃 Dance</button>
-      <button data-act="selfright">Self-right*</button>
+  <!-- ============ DASHBOARD ============ -->
+  <section class="panel active" data-panel="dash">
+    <h2>Live Sensors</h2>
+    <div class="card sensors">
+      <div><div class="lbl">📷 Camera <code>/camera/image_raw</code></div>
+        <img id="cam" alt="camera"></div>
+      <div><div class="lbl">📡 Lidar <code>/scan</code> · fwd=up</div>
+        <canvas id="lidar" width="240" height="240"></canvas></div>
     </div>
-    <div class="note">*experimental (open-loop self-right rarely succeeds)</div>
-  </div>
 
-  <h2>Gait</h2>
-  <div class="card">
-    <select id="gait">
-      <option value="crawl">crawl (stable)</option>
-      <option value="trot">trot *</option>
-      <option value="pace">pace *</option>
-      <option value="bound">bound *</option>
-      <option value="pronk">pronk *</option>
-    </select>
-    <div class="note">* experimental — dynamic, may stumble open-loop</div>
-  </div>
+    <h2>SLAM Map</h2>
+    <div class="card">
+      <canvas class="mapc" width="320" height="320"></canvas>
+      <div class="note"><span class="chip">🔵 robot</span>
+        Drive around to build the map. Use the <b>Autonomy</b> tab to send goals
+        or run waypoint routes.</div>
+    </div>
+  </section>
 
-  <h2>Body pose (lean + height)</h2>
-  <div class="card">
-    <div class="row"><label>roll</label>
-      <input class="pose" id="roll" type="range" min="-0.3" max="0.3" step="0.02" value="0">
-      <output id="rollv">0.00</output></div>
-    <div class="row"><label>pitch</label>
-      <input class="pose" id="pitch" type="range" min="-0.3" max="0.3" step="0.02" value="0">
-      <output id="pitchv">0.00</output></div>
-    <div class="row"><label>yaw</label>
-      <input class="pose" id="yaw" type="range" min="-0.3" max="0.3" step="0.02" value="0">
-      <output id="yawv">0.00</output></div>
-    <div class="row"><label>height</label>
-      <input class="pose" id="height" type="range" min="0" max="0.4" step="0.02" value="0">
-      <output id="heightv">0.00</output></div>
-    <button id="resetpose" style="width:100%;margin-top:6px">reset pose</button>
-  </div>
+  <!-- ============ DRIVE ============ -->
+  <section class="panel" data-panel="drive">
+    <h2>Manual Drive</h2>
+    <div class="card drive">
+      <div id="joy"><div id="knob"></div></div>
+      <div class="pad">
+        <button class="sp"></button>
+        <button data-fx="1">↑ Fwd</button>
+        <button class="sp"></button>
+        <button data-fy="1">← Str</button>
+        <button class="stop" id="stop">■ STOP</button>
+        <button data-fy="-1">Str →</button>
+        <button data-fz="1">⟲ L</button>
+        <button data-fx="-1">↓ Back</button>
+        <button data-fz="-1">⟳ R</button>
+      </div>
+    </div>
 
-  <div class="note" style="text-align:center;margin:14px 0 24px">
-    Go2 phone control · rosbridge @ <span id="hostlbl"></span>
-  </div>
+    <h2>Speed Limits</h2>
+    <div class="card">
+      <div class="row"><label>linear</label>
+        <input id="lin" type="range" min="0" max="0.5" step="0.05" value="0.3">
+        <output id="linv">0.30</output></div>
+      <div class="row"><label>angular</label>
+        <input id="ang" type="range" min="0" max="1.5" step="0.1" value="0.8">
+        <output id="angv">0.80</output></div>
+      <div class="note">Joystick &amp; D-pad scale by these limits. Release the joystick
+        (or hit STOP) to halt — the controller watchdog holds position when idle.</div>
+    </div>
+
+    <h2>Gait</h2>
+    <div class="card">
+      <select id="gait">
+        <option value="crawl">crawl (stable)</option>
+        <option value="trot">trot *</option>
+        <option value="pace">pace *</option>
+        <option value="bound">bound *</option>
+        <option value="pronk">pronk *</option>
+      </select>
+      <div class="note">* experimental — dynamic, may stumble open-loop.</div>
+    </div>
+  </section>
+
+  <!-- ============ AUTONOMY ============ -->
+  <section class="panel" data-panel="auto">
+    <h2>Navigation Mode</h2>
+    <div class="card">
+      <label class="navrow"><input type="checkbox" id="navmode"><span class="sw"></span>
+        <span>Autonomous — tap the map to set a Nav2 goal</span></label>
+      <label class="navrow"><input type="checkbox" id="explore"><span class="sw"></span>
+        <span>🔍 Auto-explore <span class="note" style="display:inline">(frontier mapping)</span></span></label>
+      <label class="navrow"><input type="checkbox" id="follow"><span class="sw"></span>
+        <span>🎯 Follow object <span class="note" style="display:inline">(camera tracking)</span></span></label>
+    </div>
+
+    <h2>Waypoint Route</h2>
+    <div class="card">
+      <label class="navrow"><input type="checkbox" id="wpmode"><span class="sw"></span>
+        <span>📍 Build route — tap the map to add ordered points</span></label>
+      <div class="grid3">
+        <button id="wpstart" class="good">▶ Start</button>
+        <button id="wpclear">✖ Clear</button>
+        <span class="chip" id="wpcount" style="justify-content:center">0 points</span>
+      </div>
+    </div>
+
+    <h2>Map</h2>
+    <div class="card">
+      <canvas class="mapc" width="320" height="320"></canvas>
+      <div class="note">Press a free spot to drop a goal; drag to aim final heading;
+        release to send. Manual driving pauses while autonomous.</div>
+      <button id="navstop" class="purple">■ Stop navigation</button>
+    </div>
+  </section>
+
+  <!-- ============ POSTURE ============ -->
+  <section class="panel" data-panel="posture">
+    <h2>Posture &amp; Actions</h2>
+    <div class="card">
+      <div class="grid4">
+        <button data-act="stand">⮝ Stand</button>
+        <button data-act="sit" class="purple">⤓ Sit</button>
+        <button data-act="liedown">Lie</button>
+        <button data-act="crouch">Crouch</button>
+        <button data-act="jump" class="accent">⤒ Jump</button>
+        <button data-act="wave">👋 Wave</button>
+        <button data-act="shake">🤝 Shake</button>
+        <button data-act="dance">💃 Dance</button>
+        <button data-act="selfright">Self-right*</button>
+      </div>
+      <div class="note">*experimental — open-loop self-right rarely succeeds.</div>
+    </div>
+  </section>
+
+  <!-- ============ BODY POSE ============ -->
+  <section class="panel" data-panel="pose">
+    <h2>Body Pose · Lean &amp; Height</h2>
+    <div class="card">
+      <div class="row"><label>roll</label>
+        <input class="pose" id="roll" type="range" min="-0.3" max="0.3" step="0.02" value="0">
+        <output id="rollv">0.00</output></div>
+      <div class="row"><label>pitch</label>
+        <input class="pose" id="pitch" type="range" min="-0.3" max="0.3" step="0.02" value="0">
+        <output id="pitchv">0.00</output></div>
+      <div class="row"><label>yaw</label>
+        <input class="pose" id="yaw" type="range" min="-0.3" max="0.3" step="0.02" value="0">
+        <output id="yawv">0.00</output></div>
+      <div class="row"><label>height</label>
+        <input class="pose" id="height" type="range" min="0" max="0.4" step="0.02" value="0">
+        <output id="heightv">0.00</output></div>
+      <button id="resetpose" style="width:100%;margin-top:8px">↺ Reset pose</button>
+    </div>
+  </section>
+
+  <!-- ============ ARM ============ -->
+  <section class="panel" data-panel="arm">
+    <h2>Piper Arm · Joints</h2>
+    <div class="card">
+      <div class="row"><label>j1 base</label>
+        <input class="arm" id="aj1" type="range" min="-2.618" max="2.618" step="0.02" value="0">
+        <output id="aj1v">0.00</output></div>
+      <div class="row"><label>j2 shldr</label>
+        <input class="arm" id="aj2" type="range" min="0" max="3.14" step="0.02" value="1.57">
+        <output id="aj2v">1.57</output></div>
+      <div class="row"><label>j3 elbow</label>
+        <input class="arm" id="aj3" type="range" min="-2.967" max="0" step="0.02" value="-1.3485">
+        <output id="aj3v">-1.35</output></div>
+      <div class="row"><label>j4 roll</label>
+        <input class="arm" id="aj4" type="range" min="-1.745" max="1.745" step="0.02" value="0">
+        <output id="aj4v">0.00</output></div>
+      <div class="row"><label>j5 pitch</label>
+        <input class="arm" id="aj5" type="range" min="-1.22" max="1.22" step="0.02" value="0">
+        <output id="aj5v">0.00</output></div>
+      <div class="row"><label>j6 yaw</label>
+        <input class="arm" id="aj6" type="range" min="-2.094" max="2.094" step="0.02" value="0">
+        <output id="aj6v">0.00</output></div>
+      <div class="row"><label>gripper</label>
+        <input class="arm" id="agrip" type="range" min="0" max="0.035" step="0.001" value="0">
+        <output id="agripv">0.00</output></div>
+    </div>
+
+    <h2>Presets</h2>
+    <div class="card">
+      <div class="grid3">
+        <button data-arm="home">Home</button>
+        <button data-arm="reach">Reach</button>
+        <button data-arm="down">Down</button>
+        <button data-arm="rest">Rest</button>
+        <button data-arm="open">Grip ○</button>
+        <button data-arm="close">Grip ●</button>
+      </div>
+      <button id="runpp" class="good" style="width:100%;margin-top:10px">
+        ▶ Run pick-place demo (A→B→A)</button>
+    </div>
+  </section>
+
+  <footer>Go2 Control Center · rosbridge @ <code id="hostlbl"></code></footer>
 </div>
 
 <script>
@@ -198,8 +377,11 @@ function connect() {
     advertise("/go2/action", "std_msgs/String");
     advertise("/go2/body_pose", "geometry_msgs/Twist");
     advertise("/goal_pose", "geometry_msgs/PoseStamped");
+    advertise("/go2/waypoints", "geometry_msgs/PoseArray");
     advertise("/go2/explore_enable", "std_msgs/Bool");
     advertise("/go2/follow_enable", "std_msgs/Bool");
+    advertise("/go2/arm_cmd", "std_msgs/Float64MultiArray");
+    advertise("/go2/run_pickplace", "std_msgs/Bool");
     send({op:"subscribe", topic:"/scan", type:"sensor_msgs/LaserScan",
           throttle_rate:100, queue_length:1});
     send({op:"subscribe", topic:"/map", type:"nav_msgs/OccupancyGrid",
@@ -224,6 +406,18 @@ function connect() {
 function send(o) { if (wsReady) ws.send(JSON.stringify(o)); }
 function advertise(topic, type) { send({op:"advertise", topic, type}); }
 function pub(topic, msg) { send({op:"publish", topic, msg}); }
+
+// ---- tab switching ----
+const tabs = document.querySelectorAll(".tab");
+const panels = document.querySelectorAll(".panel");
+tabs.forEach(t => t.addEventListener("click", () => {
+  tabs.forEach(x => x.classList.remove("active"));
+  panels.forEach(p => p.classList.remove("active"));
+  t.classList.add("active");
+  const tgt = document.querySelector(`.panel[data-panel="${t.dataset.tab}"]`);
+  tgt.classList.add("active");
+  if (mapImg) drawMap();   // map canvas may have been hidden; redraw on show
+}));
 
 // ---- drive state (latched, published @20Hz, mirrors the tkinter panel) ----
 let fx = 0, fy = 0, fz = 0;
@@ -279,7 +473,43 @@ function bindOut(id) {
   const upd = () => out.textContent = parseFloat(el.value).toFixed(2);
   el.addEventListener("input", upd); upd();
 }
-["lin","ang","roll","pitch","yaw","height"].forEach(bindOut);
+["lin","ang","roll","pitch","yaw","height",
+ "aj1","aj2","aj3","aj4","aj5","aj6","agrip"].forEach(bindOut);
+
+// ---- arm (Piper): sliders publish live; preset + gripper buttons ----
+const ARM_IDS = ["aj1","aj2","aj3","aj4","aj5","aj6","agrip"];
+const ARM_PRESETS = {
+  home: [0, 1.57, -1.3485, 0, 0, 0, 0],
+  reach:[0, 0.9, -0.6, 0, 0.6, 0, 0.03],
+  down: [0, 0.4, -0.7, 0, 1.4, 0, 0.03],
+  rest: [0, 0, 0, 0, 0, 0, 0],
+};
+function pubArm() {
+  const data = ARM_IDS.map(id => parseFloat(document.getElementById(id).value));
+  pub("/go2/arm_cmd", {layout:{dim:[], data_offset:0}, data});
+}
+function setArm(q) {
+  ARM_IDS.forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.value = q[i];
+    el.dispatchEvent(new Event("input"));   // refresh its label
+  });
+  pubArm();
+}
+ARM_IDS.forEach(id => document.getElementById(id).addEventListener("input", pubArm));
+document.getElementById("runpp").addEventListener("click",
+  () => pub("/go2/run_pickplace", {data: true}));
+document.querySelectorAll("button[data-arm]").forEach(b => {
+  b.addEventListener("click", () => {
+    const k = b.dataset.arm;
+    if (k === "open" || k === "close") {
+      const g = document.getElementById("agrip");
+      g.value = k === "open" ? 0.035 : 0;
+      g.dispatchEvent(new Event("input"));
+      pubArm();
+    } else setArm(ARM_PRESETS[k]);
+  });
+});
 document.getElementById("resetpose").addEventListener("click", () => {
   ["roll","pitch","yaw","height"].forEach(id => {
     document.getElementById(id).value = 0;
@@ -289,7 +519,7 @@ document.getElementById("resetpose").addEventListener("click", () => {
 
 // ---- virtual joystick (touch/mouse): forward + turn, release = stop ----
 const joy = document.getElementById("joy"), knob = document.getElementById("knob");
-const REACH = 52, KNOB = 23;          // px: travel radius, knob radius
+const REACH = 52, KNOB = 27;          // px: travel radius, knob radius
 function joyMove(ev) {
   const r = joy.getBoundingClientRect();
   const cx = r.left + r.width/2, cy = r.top + r.height/2;
@@ -358,8 +588,12 @@ function robotInMap(){
 }
 
 // ---- occupancy grid render + tap-to-goal ----
-const mapCanvas = document.getElementById("map"), mctx = mapCanvas.getContext("2d");
+// Both the Dashboard and Autonomy tabs contain a #map canvas; render to whichever
+// is currently visible (offsetParent is null when a panel is display:none).
+function mapEls(){ return Array.from(document.querySelectorAll(".mapc")); }
+function activeMap(){ return mapEls().find(c => c.offsetParent !== null) || mapEls()[0]; }
 let mapMsg = null, mapImg = null, goalWorld = null;
+let route = [], wpMode = false;          // waypoint route being built (world points)
 let view = {scale:1, ox:0, oy:0};
 
 function onMap(msg){
@@ -391,6 +625,9 @@ function pixToWorld(cx, cy){
   return {x: o.x + col*res, y: o.y + row*res};
 }
 function drawMap(){
+  const mapCanvas = activeMap();
+  if (!mapCanvas) return;
+  const mctx = mapCanvas.getContext("2d");
   const CW = mapCanvas.width, CH = mapCanvas.height;
   mctx.fillStyle = "#0b0b0b"; mctx.fillRect(0,0,CW,CH);
   if (!mapImg){ return; }
@@ -417,6 +654,18 @@ function drawMap(){
       mctx.closePath(); mctx.fill();
     }
   }
+  if (route.length){                               // waypoint route: path + numbers
+    mctx.strokeStyle = "#e3b341"; mctx.fillStyle = "#e3b341"; mctx.lineWidth = 2;
+    mctx.setLineDash([5,4]); mctx.beginPath();
+    route.forEach((w,i) => { const p = worldToPix(w.x, w.y);
+      i ? mctx.lineTo(p.x,p.y) : mctx.moveTo(p.x,p.y); });
+    mctx.stroke(); mctx.setLineDash([]);
+    mctx.textAlign = "center"; mctx.textBaseline = "middle"; mctx.font = "bold 11px sans-serif";
+    route.forEach((w,i) => { const p = worldToPix(w.x, w.y);
+      mctx.fillStyle = "#e3b341";
+      mctx.beginPath(); mctx.arc(p.x,p.y,9,0,2*Math.PI); mctx.fill();
+      mctx.fillStyle = "#1a1a1a"; mctx.fillText(String(i+1), p.x, p.y); });
+  }
   const rp = robotInMap();                         // robot arrow
   if (rp){
     const p = worldToPix(rp.x, rp.y);
@@ -434,7 +683,7 @@ const navChk = document.getElementById("navmode");
 let navMode = false;
 navChk.addEventListener("change", () => {
   navMode = navChk.checked;
-  mapCanvas.classList.toggle("armed", navMode);
+  mapEls().forEach(c => c.classList.toggle("armed", navMode));
   if (navMode) stop();                 // halt manual motion; loop then pauses publishing
   else { setExplore(false); setFollow(false); }   // leaving autonomous -> stop autonomy modes
 });
@@ -452,7 +701,8 @@ function setFollow(on){
   if (followChk.checked !== on) followChk.checked = on;
   pub("/go2/follow_enable", {data: on});
 }
-function armAutonomous(){ navChk.checked = true; navMode = true; mapCanvas.classList.add("armed"); stop(); }
+function armAutonomous(){ navChk.checked = true; navMode = true;
+  mapEls().forEach(c => c.classList.add("armed")); stop(); }
 exploreChk.addEventListener("change", () => {
   const on = exploreChk.checked;
   pub("/go2/explore_enable", {data: on});
@@ -468,7 +718,7 @@ function sendGoal(x, y, yaw){
       pose:{position:{x, y, z:0},
             orientation:{x:0, y:0, z:Math.sin(yaw/2), w:Math.cos(yaw/2)}}});
 }
-function canvasToWorld(e){
+function canvasToWorld(e, mapCanvas){
   const r = mapCanvas.getBoundingClientRect();
   const cx = (e.clientX - r.left) * mapCanvas.width / r.width;
   const cy = (e.clientY - r.top)  * mapCanvas.height / r.height;
@@ -476,38 +726,73 @@ function canvasToWorld(e){
 }
 // Press = place goal, drag = aim final heading, release = send.
 // A plain tap (no drag) defaults the heading to the travel direction.
+// Bind to every #map canvas (Dashboard + Autonomy share the same logic).
 let goalDrag = null;
-mapCanvas.addEventListener("pointerdown", (e) => {
-  if (!navMode || !mapMsg) return;
-  mapCanvas.setPointerCapture(e.pointerId);
-  goalDrag = canvasToWorld(e);
-  goalWorld = {x: goalDrag.x, y: goalDrag.y, yaw: null};
-  drawMap();
-});
-mapCanvas.addEventListener("pointermove", (e) => {
-  if (!goalDrag) return;
-  const w = canvasToWorld(e);
-  const dx = w.x - goalDrag.x, dy = w.y - goalDrag.y;
-  goalWorld.yaw = Math.hypot(dx, dy) > 0.15 ? Math.atan2(dy, dx) : null;
-  drawMap();
-});
-mapCanvas.addEventListener("pointerup", () => {
-  if (!goalDrag) return;
-  let yaw = goalWorld.yaw;
-  if (yaw === null) {                       // tap: face the way it travels
-    const rp = robotInMap();
-    yaw = rp ? Math.atan2(goalDrag.y - rp.y, goalDrag.x - rp.x) : 0;
-    goalWorld.yaw = yaw;
-  }
-  sendGoal(goalDrag.x, goalDrag.y, yaw);
-  goalDrag = null; drawMap();
+mapEls().forEach(mapCanvas => {
+  mapCanvas.addEventListener("pointerdown", (e) => {
+    if (!mapMsg) return;
+    if (wpMode){                              // add a waypoint to the route
+      route.push(canvasToWorld(e, mapCanvas));
+      document.getElementById("wpcount").textContent = route.length + " points";
+      drawMap();
+      return;
+    }
+    if (!navMode) return;
+    mapCanvas.setPointerCapture(e.pointerId);
+    goalDrag = canvasToWorld(e, mapCanvas);
+    goalWorld = {x: goalDrag.x, y: goalDrag.y, yaw: null};
+    drawMap();
+  });
+  mapCanvas.addEventListener("pointermove", (e) => {
+    if (!goalDrag) return;
+    const w = canvasToWorld(e, mapCanvas);
+    const dx = w.x - goalDrag.x, dy = w.y - goalDrag.y;
+    goalWorld.yaw = Math.hypot(dx, dy) > 0.15 ? Math.atan2(dy, dx) : null;
+    drawMap();
+  });
+  mapCanvas.addEventListener("pointerup", () => {
+    if (!goalDrag) return;
+    let yaw = goalWorld.yaw;
+    if (yaw === null) {                       // tap: face the way it travels
+      const rp = robotInMap();
+      yaw = rp ? Math.atan2(goalDrag.y - rp.y, goalDrag.x - rp.x) : 0;
+      goalWorld.yaw = yaw;
+    }
+    sendGoal(goalDrag.x, goalDrag.y, yaw);
+    goalDrag = null; drawMap();
+  });
 });
 document.getElementById("navstop").addEventListener("click", () => {
   const rp = robotInMap();             // goal = current pose -> Nav2 stops here
   if (rp) sendGoal(rp.x, rp.y, rp.yaw);
   goalWorld = null;
-  navChk.checked = false; navMode = false; mapCanvas.classList.remove("armed");
+  navChk.checked = false; navMode = false;
+  mapEls().forEach(c => c.classList.remove("armed"));
   setExplore(false); setFollow(false); // stopping nav also stops autonomy modes
+});
+
+// ---- waypoint route: tap to add points, Start to run, Clear to cancel ----
+const wpChk = document.getElementById("wpmode");
+wpChk.addEventListener("change", () => {
+  wpMode = wpChk.checked;
+  mapEls().forEach(c => c.classList.toggle("armed", wpMode || navMode));
+  if (wpMode){ navChk.checked = false; navMode = false; stop(); }   // not single-goal
+});
+function sendWaypoints(pts){               // empty array cancels the active route
+  pub("/go2/waypoints", {header:{frame_id:"map", stamp:{sec:0, nanosec:0}},
+    poses: pts.map(p => ({position:{x:p.x, y:p.y, z:0},
+                          orientation:{x:0, y:0, z:0, w:1}}))});
+}
+document.getElementById("wpstart").addEventListener("click", () => {
+  if (!route.length) return;
+  sendWaypoints(route);
+  wpChk.checked = false; wpMode = false;
+  navChk.checked = true; navMode = true;  // arm autonomous so manual cmd_vel pauses
+  mapEls().forEach(c => c.classList.add("armed")); stop();
+});
+document.getElementById("wpclear").addEventListener("click", () => {
+  route = []; document.getElementById("wpcount").textContent = "0 points";
+  sendWaypoints([]); drawMap();
 });
 
 connect();

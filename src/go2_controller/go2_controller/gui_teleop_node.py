@@ -22,10 +22,10 @@ import rclpy.time
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist, PoseStamped, PoseArray, Pose
 from sensor_msgs.msg import Image, LaserScan
 from nav_msgs.msg import OccupancyGrid
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Float64MultiArray
 from tf2_ros import Buffer, TransformListener
 from PIL import Image as PILImage, ImageTk
 
@@ -39,9 +39,12 @@ class Go2GuiTeleop(Node):
         self.action_pub = self.create_publisher(String, "go2/action", 10)
         self.pose_pub = self.create_publisher(Twist, "go2/body_pose", 10)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
+        self.wp_pub = self.create_publisher(PoseArray, "go2/waypoints", 10)
         self.explore_pub = self.create_publisher(Bool, "go2/explore_enable", 1)
         self.follow_pub = self.create_publisher(Bool, "go2/follow_enable", 1)
         self.ball_pub = self.create_publisher(Twist, "go2/ball_cmd", 10)
+        self.arm_pub = self.create_publisher(Float64MultiArray, "go2/arm_cmd", 10)
+        self.runpp_pub = self.create_publisher(Bool, "go2/run_pickplace", 1)
         self.fx = self.fy = self.fz = 0.0      # latched drive (unit, scaled by sliders)
         self.latest_frame = None               # newest /camera/image_raw message
         self.latest_scan = None                # newest /scan message
@@ -78,6 +81,18 @@ class Go2GuiTeleop(Node):
         m.pose.orientation.w = math.cos(yaw / 2.0)
         self.goal_pub.publish(m)
 
+    def send_waypoints(self, pts):
+        """Publish an ordered route as a PoseArray (map frame). pts = [(x, y), ...]."""
+        m = PoseArray()
+        m.header.frame_id = "map"
+        m.header.stamp = self.get_clock().now().to_msg()
+        for x, y in pts:
+            p = Pose()
+            p.position.x, p.position.y = float(x), float(y)
+            p.orientation.w = 1.0
+            m.poses.append(p)
+        self.wp_pub.publish(m)            # an empty array cancels the active route
+
     def robot_in_map(self):
         """(x, y, yaw) of base_link in the map frame, or None if TF not ready."""
         try:
@@ -94,6 +109,12 @@ class Go2GuiTeleop(Node):
         m.linear.x, m.linear.y, m.angular.z = self.fx * lin, self.fy * lin, self.fz * ang
         self.pub.publish(m)
         return m
+
+    def send_arm(self, q):
+        """Publish Piper arm joint targets: [j1..j6, gripper]."""
+        m = Float64MultiArray()
+        m.data = [float(x) for x in q]
+        self.arm_pub.publish(m)
 
     def send_action(self, action):
         self.action_pub.publish(String(data=action))
@@ -155,6 +176,9 @@ class ControlPanel:
         self.nav_mode = tk.BooleanVar(value=False)
         tk.Checkbutton(f, text="Autonomous mode — click the map to set a Nav2 goal",
                        variable=self.nav_mode, command=self._on_navmode).pack(anchor="w")
+        self.wp_mode = tk.BooleanVar(value=False)
+        tk.Checkbutton(f, text="📍 Waypoint route — click the map to add ordered points",
+                       variable=self.wp_mode, command=self._on_wpmode).pack(anchor="w")
         self.map_size = 320
         self.map_canvas = tk.Canvas(f, width=self.map_size, height=self.map_size,
                                     bg="#0b0b0b", highlightthickness=1,
@@ -167,8 +191,16 @@ class ControlPanel:
         self._map_view = None        # (ox, oy, res, w, h, scale, opx, opy)
         self._goal = None            # (x, y, yaw|None)
         self._goal_drag = None       # goal position while press-dragging
+        self._route_pts = []         # [(x, y), ...] waypoint route being built
         self._was_moving = False     # for idle-silence of /cmd_vel
         self._map_tick = 0
+        wpf = tk.Frame(f)
+        wpf.pack(fill="x", pady=(2, 0))
+        tk.Button(wpf, text="▶ Start route", command=self._start_route).pack(side="left")
+        tk.Button(wpf, text="✖ Clear route", command=self._clear_route).pack(
+            side="left", padx=(6, 0))
+        self.wp_count = tk.Label(wpf, text="0 points", fg="#888")
+        self.wp_count.pack(side="left", padx=(8, 0))
         tk.Button(f, text="■ Stop navigation", command=self._stop_nav).pack(pady=(4, 0))
         # auto-explore: the go2_explorer node maps unknown space on its own; this
         # checkbox just gates it via /go2/explore_enable. Needs explorer running.
@@ -308,6 +340,50 @@ class ControlPanel:
         tk.Button(f, text="reset pose", command=self._reset_pose).grid(
             row=4, column=0, columnspan=2, pady=(4, 0))
 
+        # ---------- arm (Piper) ----------
+        f = tk.LabelFrame(self.root, text="Arm — Piper  (j1..j6 + gripper)",
+                          padx=6, pady=4)
+        f.pack(fill="x", padx=8, pady=4)
+        # (label, lo, hi, resolution) per joint; gripper is a slide in metres.
+        ARM_SPECS = [
+            ("j1 base",  -2.618, 2.618, 0.02),
+            ("j2 shldr",  0.0,   3.14,  0.02),
+            ("j3 elbow", -2.967, 0.0,   0.02),
+            ("j4 roll",  -1.745, 1.745, 0.02),
+            ("j5 pitch", -1.22,  1.22,  0.02),
+            ("j6 yaw",   -2.094, 2.094, 0.02),
+            ("gripper",   0.0,   0.035, 0.001),
+        ]
+        self.ARM_HOME = [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0, 0.0]
+        self.arm_vars = []
+        for i, (lbl, lo, hi, res) in enumerate(ARM_SPECS):
+            var = tk.DoubleVar(value=self.ARM_HOME[i])
+            self.arm_vars.append(var)
+            tk.Label(f, text=lbl).grid(row=i, column=0, sticky="e")
+            tk.Scale(f, variable=var, from_=lo, to=hi, resolution=res,
+                     orient=tk.HORIZONTAL, length=180,
+                     command=lambda _v: self._send_arm()).grid(row=i, column=1)
+        # one-tap named poses (verified to look right on the standing robot)
+        self.ARM_PRESETS = {
+            "Home":  [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0, 0.0],
+            "Reach": [0.0, 0.9, -0.6, 0.0, 0.6, 0.0, 0.03],
+            "Down":  [0.0, 0.4, -0.7, 0.0, 1.4, 0.0, 0.03],
+            "Rest":  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+        bf = tk.Frame(f)
+        bf.grid(row=len(ARM_SPECS), column=0, columnspan=2, pady=(4, 0))
+        for name, q in self.ARM_PRESETS.items():
+            tk.Button(bf, text=name, width=6,
+                      command=lambda q=q: self._set_arm(q)).pack(side="left", padx=2)
+        tk.Button(bf, text="Grip●", width=5,
+                  command=lambda: self._set_grip(0.0)).pack(side="left", padx=(8, 2))
+        tk.Button(bf, text="Grip○", width=5,
+                  command=lambda: self._set_grip(0.035)).pack(side="left", padx=2)
+        # one-click autonomous pick-place demo (only does anything on the pick-place scene)
+        tk.Button(f, text="▶ Run pick-place demo (A→B→A)", bg="#198754", fg="white",
+                  command=lambda: self.node.runpp_pub.publish(Bool(data=True))).grid(
+            row=len(ARM_SPECS) + 1, column=0, columnspan=2, pady=(6, 0), sticky="we")
+
         self.status = tk.Label(self.root, text="stopped")
         self.status.pack(pady=(2, 6))
 
@@ -329,6 +405,18 @@ class ControlPanel:
     def _reset_pose(self):
         for v in (self.roll, self.pitch, self.yaw, self.height):
             v.set(0.0)
+
+    def _send_arm(self):
+        self.node.send_arm([v.get() for v in self.arm_vars])
+
+    def _set_arm(self, q):
+        for v, x in zip(self.arm_vars, q):
+            v.set(x)
+        self._send_arm()
+
+    def _set_grip(self, g):
+        self.arm_vars[6].set(g)
+        self._send_arm()
 
     def _joy_drag(self, event):
         r, reach, kr = self.joy_r, self.joy_r - self.knob_r, self.knob_r
@@ -447,6 +535,27 @@ class ControlPanel:
             if self.follow.get():
                 self._set_follow(False)
 
+    def _on_wpmode(self):
+        if self.wp_mode.get():
+            self.nav_mode.set(False)          # don't mix single-goal taps with routes
+            self.stop()                       # halt manual motion while planning
+
+    def _start_route(self):
+        if not self._route_pts:
+            self.status.config(text="no waypoints — click the map to add some")
+            return
+        self.node.send_waypoints(self._route_pts)
+        self.nav_mode.set(True)               # arm autonomous so /cmd_vel pauses
+        self.wp_mode.set(False)
+        self.status.config(text=f"▶ running route of {len(self._route_pts)} waypoints")
+
+    def _clear_route(self):
+        self._route_pts = []
+        self.wp_count.config(text="0 points")
+        self.node.send_waypoints([])          # empty -> cancel any active route
+        self._update_map()
+        self.status.config(text="route cleared")
+
     def _canvas_to_world(self, event):
         ox, oy, res, w, h, scale, opx, opy = self._map_view
         col = (event.x - opx) / scale
@@ -454,7 +563,14 @@ class ControlPanel:
         return ox + col * res, oy + row * res
 
     def _map_press(self, event):
-        if not self.nav_mode.get() or self._map_view is None:
+        if self._map_view is None:
+            return
+        if self.wp_mode.get():                # build a waypoint route
+            self._route_pts.append(self._canvas_to_world(event))
+            self.wp_count.config(text=f"{len(self._route_pts)} points")
+            self._update_map()
+            return
+        if not self.nav_mode.get():
             return
         gx, gy = self._canvas_to_world(event)
         self._goal_drag = (gx, gy)
@@ -563,6 +679,19 @@ class ControlPanel:
                 ty = opy + (h - (gy + 0.7 * math.sin(gyaw) - o.y) / res) * scale
                 c.create_line(px, py, tx, ty, fill="#3fb950", width=2,
                               arrow="last", tags="m")
+        if self._route_pts:                   # waypoint route: dashed path + numbers
+            pts_px = [(opx + ((wx - o.x) / res) * scale,
+                       opy + (h - (wy - o.y) / res) * scale)
+                      for (wx, wy) in self._route_pts]
+            for (x0, y0), (x1, y1) in zip(pts_px, pts_px[1:]):
+                c.create_line(x0, y0, x1, y1, fill="#e3b341", width=2,
+                              dash=(4, 3), tags="m")
+            for i, (px, py) in enumerate(pts_px, 1):
+                c.create_oval(px - 8, py - 8, px + 8, py + 8,
+                              fill="#e3b341", outline="#1a1a1a", tags="m")
+                c.create_text(px, py, text=str(i), fill="#1a1a1a",
+                              font=("TkDefaultFont", 8, "bold"), tags="m")
+
         rp = self.node.robot_in_map()         # robot arrow
         if rp is not None:
             rx, ry, ryaw = rp

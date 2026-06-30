@@ -12,17 +12,18 @@ Drive it with, e.g.:  ros2 run teleop_twist_keyboard teleop_twist_keyboard
 import math
 import os
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
-from geometry_msgs.msg import Twist, TransformStamped, PoseStamped
+from geometry_msgs.msg import Twist, TransformStamped, PoseStamped, PoseArray
 from tf2_ros import (TransformBroadcaster, StaticTransformBroadcaster,
                      Buffer, TransformListener)
 from sensor_msgs.msg import (
     JointState, Imu, Image, CameraInfo, LaserScan, PointCloud2,
 )
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String, Header
+from std_msgs.msg import String, Header, Float64MultiArray, Bool
 
 try:
     from sensor_msgs_py import point_cloud2 as pc2
@@ -37,9 +38,10 @@ from .simulator import Go2Sim
 
 
 def default_model_path():
+    # Go2 with the AgileX Piper arm mounted on its back. To run the bare Go2, override:
+    #   --ros-args -p model_path:=<.../mujoco_menagerie/unitree_go2/go2_imu_scene.xml>
     share = get_package_share_directory("go2_controller")
-    return os.path.join(share, "models", "mujoco_menagerie",
-                        "unitree_go2", "go2_imu_scene.xml")
+    return os.path.join(share, "models", "go2_piper", "go2_piper_control.xml")
 
 
 class Go2TeleopNode(Node):
@@ -123,6 +125,21 @@ class Go2TeleopNode(Node):
         self._ball_cmd = (0.0, 0.0)
         self._ball_cmd_t = None
         self.create_subscription(Twist, "go2/ball_cmd", self.on_ball_cmd, 10)
+        # Arm (Piper) joint targets: Float64MultiArray of 7 = [j1..j6, gripper] (radians,
+        # gripper in metres). Only active when the model has an arm (sim.n_arm > 0).
+        self._task = None          # active pick/place arm routine (list of phases)
+        if self.sim.n_arm > 0:
+            self.create_subscription(Float64MultiArray, "go2/arm_cmd",
+                                     self.on_arm_cmd, 10)
+            # Autonomous grasp/place: the controller has sim access so it solves IK to
+            # the actual item / table (robust to where the robot stopped walking).
+            self.create_subscription(Bool, "go2/pick", self.on_pick, 1)
+            self.create_subscription(Float64MultiArray, "go2/place", self.on_place, 1)
+            self.create_subscription(Bool, "go2/run_pickplace", self.on_run_pickplace, 1)
+            self.get_logger().info(
+                f"Arm detected ({self.sim.n_arm} joints); listening on /go2/arm_cmd, "
+                "/go2/pick, /go2/place, /go2/run_pickplace.")
+        self._demo = None          # active one-button pick-place demo plan
         self.joint_pub = self.create_publisher(JointState, "joint_states", 10)
         self.odom_pub = self.create_publisher(Odometry, "odom", 10)
         self.imu_pub = self.create_publisher(Imu, "imu", 10)
@@ -143,6 +160,15 @@ class Go2TeleopNode(Node):
         self.goal_pos_tol = self.get_parameter("goal_pos_tol").value
         self.goal_yaw_tol = self.get_parameter("goal_yaw_tol").value
         self.create_subscription(PoseStamped, "goal_pose", self.on_goal_pose, 10)
+
+        # Waypoint route: a PoseArray (map frame) of ordered goals. We visit them
+        # one at a time by republishing each as /goal_pose (the same path single
+        # goals use) and advancing to the next once the current one is reached.
+        self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
+        self.create_subscription(PoseArray, "go2/waypoints", self.on_waypoints, 10)
+        self._route = []            # list of (x, y, yaw) in the map frame
+        self._route_i = 0
+        self._route_active = False
 
         # --- onboard sensors (camera + lidar) ---
         self.cam_w = self.get_parameter("camera_width").value
@@ -201,6 +227,42 @@ class Go2TeleopNode(Node):
         q = msg.pose.orientation
         yaw = math.atan2(2.0 * (q.w*q.z + q.x*q.y), 1.0 - 2.0 * (q.y*q.y + q.z*q.z))
         self.nav_goal = (msg.pose.position.x, msg.pose.position.y, yaw)
+
+    def on_waypoints(self, msg: PoseArray):
+        """Receive an ordered route (map frame). Empty array cancels the route."""
+        pts = [(p.position.x, p.position.y) for p in msg.poses]
+        if not pts:
+            self._route, self._route_active, self.nav_goal = [], False, None
+            self.get_logger().info("waypoint route: cancelled")
+            return
+        route = []
+        for k, (x, y) in enumerate(pts):
+            if k < len(pts) - 1:                  # face toward the next waypoint
+                nx, ny = pts[k + 1]
+                yaw = math.atan2(ny - y, nx - x)
+            elif k > 0:                           # last point: keep arrival heading
+                px, py = pts[k - 1]
+                yaw = math.atan2(y - py, x - px)
+            else:                                 # single waypoint
+                yaw = 0.0
+            route.append((x, y, yaw))
+        self._route, self._route_i, self._route_active = route, 0, True
+        self.get_logger().info(f"waypoint route: {len(route)} point(s)")
+        self._send_waypoint()
+
+    def _send_waypoint(self):
+        """Publish the current waypoint as a /goal_pose so Nav2 drives to it."""
+        x, y, yaw = self._route[self._route_i]
+        m = PoseStamped()
+        m.header.frame_id = "map"
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.pose.position.x, m.pose.position.y = x, y
+        m.pose.orientation.z = math.sin(yaw / 2.0)
+        m.pose.orientation.w = math.cos(yaw / 2.0)
+        self.goal_pub.publish(m)
+        self.nav_goal = (x, y, yaw)               # drive + final-heading target
+        self.get_logger().info(
+            f"waypoint {self._route_i + 1}/{len(self._route)} -> ({x:.2f}, {y:.2f})")
 
     def _pose_in_map(self):
         """Current base_link pose (x, y, yaw) in the map frame, or None."""
@@ -315,6 +377,8 @@ class Go2TeleopNode(Node):
         return target
 
     def control_tick(self):
+        self._demo_tick()           # autonomous pick-place demo drives vx/vy/wz + arm
+
         # Safety (deadman watchdog): target zero if cmd_vel went stale.
         dt_cmd = (self.get_clock().now() - self.last_cmd_time).nanoseconds * 1e-9
         tx, ty, tz = (self.vx, self.vy, self.wz) if dt_cmd < self.cmd_timeout \
@@ -331,6 +395,15 @@ class Go2TeleopNode(Node):
         if self.nav_goal is not None:
             vx, vy, wz = self._final_heading(vx, vy, wz)
 
+        # Waypoint route: the current goal was reached (nav_goal cleared) -> next.
+        if self._route_active and self.nav_goal is None:
+            self._route_i += 1
+            if self._route_i < len(self._route):
+                self._send_waypoint()
+            else:
+                self._route_active = False
+                self.get_logger().info("waypoint route: complete")
+
         # Drive the ball while a fresh command is held; otherwise let physics roll it.
         # The command is ROBOT-FRAME (forward, left); rotate it by the base yaw so the
         # buttons feel intuitive from the robot's point of view regardless of heading.
@@ -345,6 +418,8 @@ class Go2TeleopNode(Node):
         else:
             self.sim.set_ball_velocity(None)
 
+        self._task_tick()           # advance an autonomous pick/place arm routine
+
         for _ in range(self.steps_per_tick):
             self.sim.set_target(self._target_for_mode(vx, vy, wz))
             self.sim.step()
@@ -357,15 +432,178 @@ class Go2TeleopNode(Node):
 
         self.publish_state()
 
+    def on_arm_cmd(self, msg: Float64MultiArray):
+        """Set the arm (Piper) joint targets from a Float64MultiArray."""
+        if self._task is None:                 # don't fight an autonomous pick/place
+            self.sim.set_arm_target(msg.data)
+
+    HOME_ARM = [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0]
+    GRIP_OPEN, GRIP_CLOSE, LIFT_DJ2 = 0.030, 0.0, -0.40
+
+    def on_pick(self, msg: Bool):
+        if msg.data:
+            self._do_pick()
+
+    def _do_pick(self):
+        """Autonomously grasp the 'pick_item' wherever it is in front of the robot."""
+        if self._task is not None:
+            return False
+        item = self.sim.body_xpos("pick_item")
+        if item is None:
+            return False
+        self._grasp_q = self.sim.grasp_ik(item)
+        pre = list(self._grasp_q); pre[1] += self.LIFT_DJ2
+        self._start_task([
+            {"arm": pre + [self.GRIP_OPEN], "dwell": 2.0},
+            {"arm": list(self._grasp_q) + [self.GRIP_OPEN], "dwell": 2.0},
+            {"arm": "OPEN", "dwell": 1.5, "recal": "pick_item"},   # re-aim on the item
+            {"arm": "CLOSE", "dwell": 2.0},
+            {"arm": "LIFT", "dwell": 2.0},
+        ])
+        self.get_logger().info("pick: grasping item")
+        return True
+
+    def on_place(self, msg: Float64MultiArray):
+        if len(msg.data) >= 3:
+            self._do_place(np.array(msg.data[:3]))
+
+    def _do_place(self, tb):
+        """Lower the held item onto a target [x, y, z] (table surface) and release."""
+        if self._task is not None:
+            return False
+        self._grasp_q = self.sim.grasp_ik(tb)
+        pre = list(self._grasp_q); pre[1] += self.LIFT_DJ2
+        self._start_task([
+            {"arm": pre + [self.GRIP_CLOSE], "dwell": 2.0},
+            {"arm": "CLOSE", "dwell": 2.0},                        # lower to the table
+            {"arm": "OPEN", "dwell": 1.5},                         # release
+            {"arm": pre + [self.GRIP_OPEN], "dwell": 1.5},         # retract up
+            {"arm": self.HOME_ARM + [self.GRIP_OPEN], "dwell": 1.0},
+        ])
+        self.get_logger().info(f"place: lowering onto {tuple(round(v, 2) for v in tb)}")
+        return True
+
+    # --- one-button autonomous pick-place demo (A -> B -> A) ---
+    DEMO_STANDS = {"A": (0.60, 0.50, 0.0), "B": (0.60, -0.50, 0.0)}
+    DEMO_TOPS = {"A": (1.10, 0.50, 0.30), "B": (1.10, -0.50, 0.30)}
+    DEMO_PLAN = [("walk", "A"), ("pick", None), ("walk", "B"), ("place", "B"),
+                 ("pick", None), ("walk", "A"), ("place", "A")]
+
+    def on_run_pickplace(self, msg: Bool):
+        if not msg.data or self._demo is not None:
+            return
+        if self.sim.body_xpos("pick_item") is None:
+            self.get_logger().warn("run_pickplace ignored: not a pick-place scene.")
+            return
+        self._demo = list(self.DEMO_PLAN)
+        self._demo_i = 0
+        self.get_logger().info("pick-place demo: started")
+
+    def _demo_tick(self):
+        """Drive the demo: walk to a stand, then pick/place; called each control tick."""
+        if self._demo is None:
+            return
+        if self._task is not None:           # an arm routine is running -> hold still
+            self.vx = self.vy = self.wz = 0.0
+            self.last_cmd_time = self.get_clock().now()
+            return
+        if self._demo_i >= len(self._demo):
+            self.vx = self.vy = self.wz = 0.0
+            self._demo = None
+            self.get_logger().info("pick-place demo: done")
+            return
+        kind, arg = self._demo[self._demo_i]
+        if kind == "walk":
+            if self._demo_walk(self.DEMO_STANDS[arg]):
+                self._demo_i += 1
+        elif kind == "pick":
+            self._do_pick(); self._demo_i += 1
+        elif kind == "place":
+            self._do_place(np.array(self.DEMO_TOPS[arg])); self._demo_i += 1
+
+    def _demo_walk(self, target):
+        """Set drive command toward (x, y, yaw); return True when arrived."""
+        pos, quat = self.sim.base_pose()
+        x, y = pos[0], pos[1]
+        yaw = math.atan2(2 * (quat[0]*quat[3] + quat[1]*quat[2]),
+                         1 - 2 * (quat[2]*quat[2] + quat[3]*quat[3]))
+        ex, ey = target[0] - x, target[1] - y
+        dist = math.hypot(ex, ey)
+        yaw_err = math.atan2(math.sin(target[2] - yaw), math.cos(target[2] - yaw))
+        self.last_cmd_time = self.get_clock().now()
+        V, W = 0.22, 0.5
+        if dist > 0.07:
+            fx = math.cos(yaw) * ex + math.sin(yaw) * ey
+            fy = -math.sin(yaw) * ex + math.cos(yaw) * ey
+            self.vx = max(-V, min(V, 0.8 * fx))
+            self.vy = max(-V, min(V, 0.8 * fy))
+            self.wz = max(-W, min(W, 1.0 * yaw_err))
+            return False
+        if abs(yaw_err) > 0.06:
+            self.vx = self.vy = 0.0
+            self.wz = max(-W, min(W, 1.2 * yaw_err))
+            return False
+        self.vx = self.vy = self.wz = 0.0
+        return True
+
+    def _start_task(self, phases):
+        self._task = phases
+        self._task_i = -1
+        self._advance_phase()
+
+    def _resolve_arm(self, a):
+        if a is None:
+            return None
+        if isinstance(a, str):
+            q = list(self._grasp_q)
+            if a == "OPEN":
+                return q + [self.GRIP_OPEN]
+            if a == "CLOSE":
+                return q + [self.GRIP_CLOSE]
+            if a == "LIFT":
+                q[1] += self.LIFT_DJ2
+                return q + [self.GRIP_CLOSE]
+        return a
+
+    def _advance_phase(self):
+        self._task_i += 1
+        if self._task_i >= len(self._task):
+            self._task = None
+            return
+        ph = self._task[self._task_i]
+        if "recal" in ph:                       # re-aim IK at the item's actual position
+            item = self.sim.body_xpos(ph["recal"])
+            if item is not None:
+                err = item - self.sim.grasp_point()
+                self._grasp_q = self.sim.grasp_ik(item + err, q_seed=self._grasp_q,
+                                                  iters=2500)
+        arm = self._resolve_arm(ph["arm"])
+        if arm is not None:
+            self.sim.set_arm_target(arm)
+        self._phase_end = self.get_clock().now() + rclpy.duration.Duration(seconds=ph["dwell"])
+
+    def _task_tick(self):
+        if self._task is not None and self.get_clock().now() >= self._phase_end:
+            self._advance_phase()
+
     def publish_state(self):
         now = self.get_clock().now().to_msg()
 
         names, qpos, qvel = self.sim.joint_states()
+        names = list(names)
+        qpos = list(qpos)
+        qvel = list(qvel)
+        arm = self.sim.arm_state()                 # append Piper joints if present
+        if arm is not None:
+            aq, av = arm
+            names += [f"piper_joint{i}" for i in range(1, self.sim.n_arm + 1)]
+            qpos += list(aq)
+            qvel += list(av)
         js = JointState()
         js.header.stamp = now
         js.name = names
-        js.position = list(qpos)
-        js.velocity = list(qvel)
+        js.position = qpos
+        js.velocity = qvel
         self.joint_pub.publish(js)
 
         pos, quat = self.sim.base_pose()

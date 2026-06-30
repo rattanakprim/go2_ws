@@ -32,11 +32,73 @@ class Go2Sim:
         self._cam_size = None
         self._lidar_sid = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_SITE, "lidar")
-        # qvel address of the sports ball's free joint (for GUI ball-driving), if present
+        # qvel/qpos address of the sports ball's free joint (GUI ball-driving / reset)
         bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "sports_ball")
         self.ball_dofadr = int(self.model.body_dofadr[bid]) if bid >= 0 else -1
+        self.ball_qposadr = (int(self.model.jnt_qposadr[self.model.body_jntadr[bid]])
+                             if bid >= 0 else -1)
         self._ball_vel = None        # (vx, vy) to hold this step, or None = free physics
+        # Optional manipulator arm: any actuators beyond the 12 leg motors (e.g. the
+        # AgileX Piper) are position-controlled -- ctrl[12:] = arm_target each step.
+        self.n_arm = max(0, self.model.nu - 12)
+        self.arm_target = np.zeros(self.n_arm)
+        # Online-grasp helpers (Piper): finger pad geoms + a scratch MjData for IK.
+        self._arm_qadr = [self.model.jnt_qposadr[
+            mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, f"piper_joint{i}")]
+            for i in range(1, 7)] if self.n_arm else []
+        l7 = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "piper_link7")
+        l8 = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "piper_link8")
+        self._l7 = l7
+        self._pad_geoms = [g for g in range(self.model.ngeom)
+                           if self.model.geom_bodyid[g] in (l7, l8)
+                           and self.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX]
+        self._ik_data = mujoco.MjData(self.model) if self.n_arm else None
         self.reset_to_stand()
+
+    # --- arm forward/inverse kinematics for grasping (Piper) ---
+    def body_xpos(self, name):
+        bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, name)
+        return self.data.xpos[bid].copy() if bid >= 0 else None
+
+    def grasp_point(self):
+        """World position of the gripper's finger-pad centre (live state)."""
+        return np.mean([self.data.geom_xpos[g] for g in self._pad_geoms], axis=0)
+
+    _ARM_LIM = {0: (-2.6, 2.6), 1: (0.0, 3.1), 2: (-2.95, 0.0),
+                3: (-1.7, 1.7), 4: (-1.2, 1.2), 5: (-2.0, 2.0)}
+
+    def grasp_ik(self, world_target, q_seed=None, iters=4000):
+        """Solve the 6 arm joints so the finger-pad centre reaches world_target,
+        keeping the closing axis horizontal. Uses a scratch MjData seeded from the
+        live state (so the base pose is whatever the robot is standing at)."""
+        dat = self._ik_data
+        dat.qpos[:] = self.data.qpos
+        dat.qvel[:] = 0
+        l7 = self._l7
+        rng = np.random.default_rng(0)
+
+        def grasp_pt():
+            return np.mean([dat.geom_xpos[g] for g in self._pad_geoms], axis=0)
+
+        def cost(q):
+            for k, adr in enumerate(self._arm_qadr):
+                dat.qpos[adr] = q[k]
+            mujoco.mj_forward(self.model, dat)
+            R = dat.xmat[l7].reshape(3, 3)
+            return np.sum((grasp_pt() - world_target) ** 2) * 100 + 0.2 * (1 - abs(R[1, 2]))
+
+        q = np.array(q_seed if q_seed is not None else
+                     [self.data.qpos[a] for a in self._arm_qadr], dtype=float)
+        best = cost(q)
+        for _ in range(iters):
+            i = rng.integers(6)
+            q2 = q.copy()
+            lo, hi = self._ARM_LIM[i]
+            q2[i] = min(hi, max(lo, q2[i] + rng.standard_normal() * 0.12))
+            c = cost(q2)
+            if c < best:
+                best, q = c, q2
+        return q
 
     @property
     def dt(self):
@@ -47,14 +109,18 @@ class Go2Sim:
         # Use the model's "home" keyframe if present (qpos + ctrl pre-set)
         if self.model.nkey > 0:
             mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
-            # The "home" keyframe only poses the robot (first 19 qpos). Any extra free
-            # bodies in the scene (e.g. the sports ball) get zeroed by the keyframe ->
-            # they snap to the world origin onto the robot and explode. Restore those
-            # trailing DOF to their model spawn (qpos0) and zero their velocity.
-            if self.model.nq > 19:
-                self.data.qpos[19:] = self.model.qpos0[19:]
-            if self.model.nv > 18:           # qvel: robot = 18 dofs (6 base + 12 joints)
-                self.data.qvel[18:] = 0.0
+            # A short "home" keyframe poses only the robot; any free-floating body (the
+            # sports ball) gets zeroed and snaps onto the robot at the origin -> explodes.
+            # Restore just the ball to its spawn (qpos0) and zero its velocity. The arm
+            # joints (between the legs and the ball) are left at the keyframe's home pose.
+            if self.ball_qposadr >= 0:
+                a = self.ball_qposadr
+                self.data.qpos[a:a + 7] = self.model.qpos0[a:a + 7]
+            if self.ball_dofadr >= 0:
+                self.data.qvel[self.ball_dofadr:self.ball_dofadr + 6] = 0.0
+            # Hold the arm at its keyframe home pose (keyframe ctrl pre-sets the targets).
+            if self.n_arm > 0:
+                self.arm_target = self.data.ctrl[12:12 + self.n_arm].copy()
         self.target_q = self.data.qpos[7:19].copy()
         mujoco.mj_forward(self.model, self.data)
 
@@ -65,7 +131,26 @@ class Go2Sim:
         q = self.data.qpos[7:19]
         dq = self.data.qvel[6:18]
         tau = self.kp * (self.target_q - q) - self.kd * dq
-        self.data.ctrl[:] = np.clip(tau, -TAU_LIMIT, TAU_LIMIT)
+        self.data.ctrl[:12] = np.clip(tau, -TAU_LIMIT, TAU_LIMIT)
+        # Position-control the arm (if any) toward its target joint angles.
+        if self.n_arm > 0:
+            self.data.ctrl[12:12 + self.n_arm] = self.arm_target
+
+    def set_arm_target(self, q):
+        """Set arm joint targets (6 Piper joints + gripper); extra/short inputs clamped."""
+        if self.n_arm == 0:
+            return
+        q = np.asarray(q, dtype=float).ravel()
+        n = min(len(q), self.n_arm)
+        self.arm_target[:n] = q[:n]
+
+    def arm_state(self):
+        """(positions, velocities) of the arm joints, or None if no arm."""
+        if self.n_arm == 0:
+            return None
+        # Piper qpos starts right after the 12 legs (qpos[7:19]) -> qpos[19:].
+        return (self.data.qpos[19:19 + self.n_arm].copy(),
+                self.data.qvel[18:18 + self.n_arm].copy())
 
     def set_ball_velocity(self, vel):
         """Drive the sports ball: vel=(vx, vy) world m/s, or None to release to physics."""

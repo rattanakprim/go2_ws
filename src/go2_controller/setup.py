@@ -42,6 +42,7 @@ setup(
             "explore = go2_controller.explore_node:main",
             "follow = go2_controller.follow_node:main",
             "color_tracker = go2_controller.color_tracker_node:main",
+            "pick_place = go2_controller.pick_place_node:main",
         ],
     },
 )

@@ -21,11 +21,43 @@
   html,body { margin:0; background:var(--bg); color:var(--txt); min-height:100vh;
               font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
               font-size:14px; line-height:1.4; }
-  body { background:
-    radial-gradient(1200px 600px at 50% -200px, #16203a 0%, transparent 60%),
-    var(--bg); }
-  .app { max-width:600px; margin:0 auto;
+  body { background:var(--bg); position:relative; overflow-x:hidden; }
+  /* ---------- animated ambient background ---------- */
+  /* drifting aurora glows */
+  body::before { content:""; position:fixed; inset:-20% -20% -20% -20%; z-index:-2;
+    background:
+      radial-gradient(42% 38% at 18% 16%, #2563eb99 0%, transparent 62%),
+      radial-gradient(40% 34% at 84% 24%, #7c3aed85 0%, transparent 62%),
+      radial-gradient(48% 42% at 62% 90%, #0ea5e966 0%, transparent 64%),
+      radial-gradient(36% 32% at 10% 78%, #22c55e4d 0%, transparent 62%);
+    filter:blur(4px); animation:aurora 22s ease-in-out infinite alternate; }
+  /* slow-panning HUD grid */
+  body::after { content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
+    background-image:
+      linear-gradient(#ffffff08 1px, transparent 1px),
+      linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+    background-size:42px 42px; mask-image:radial-gradient(circle at 50% 30%, #000 0%, transparent 78%);
+    -webkit-mask-image:radial-gradient(circle at 50% 30%, #000 0%, transparent 78%);
+    animation:gridpan 40s linear infinite; }
+  @keyframes aurora {
+    0%   { transform:translate3d(0,0,0) scale(1);     opacity:.9; }
+    50%  { transform:translate3d(-3%,2%,0) scale(1.08); opacity:1; }
+    100% { transform:translate3d(2%,-2%,0) scale(1.04); opacity:.85; }
+  }
+  @keyframes gridpan { from { background-position:0 0, 0 0; }
+                       to   { background-position:42px 42px, 42px 42px; } }
+  /* a faint scan sweep across the whole viewport */
+  .scan { position:fixed; left:0; right:0; top:0; height:160px; z-index:-1; pointer-events:none;
+    background:linear-gradient(180deg, transparent, #3b82f612 45%, #60a5fa1f 50%, #3b82f612 55%, transparent);
+    animation:sweep 7s linear infinite; }
+  @keyframes sweep { 0% { transform:translateY(-180px); opacity:0; }
+                     8% { opacity:1; } 92% { opacity:1; }
+                     100% { transform:translateY(105vh); opacity:0; } }
+  .app { max-width:600px; margin:0 auto; position:relative; z-index:1;
          padding:0 12px calc(86px + env(safe-area-inset-bottom)); }
+  @media (prefers-reduced-motion: reduce) {
+    body::before, body::after, .scan { animation:none; }
+  }
 
   /* ---------- top bar ---------- */
   header { position:sticky; top:0; z-index:20; padding:12px 0 8px;
@@ -35,7 +67,12 @@
   .logo { width:34px; height:34px; border-radius:9px; flex:none;
           background:linear-gradient(135deg, var(--accent), var(--purple));
           display:grid; place-items:center; font-weight:800; font-size:15px;
-          color:#fff; box-shadow:0 4px 14px #3b82f655; }
+          color:#fff; box-shadow:0 4px 14px #3b82f655;
+          animation:logoGlow 3.5s ease-in-out infinite; }
+  @keyframes logoGlow {
+    0%,100% { box-shadow:0 4px 14px #3b82f555, 0 0 0 0 #3b82f600; }
+    50%     { box-shadow:0 4px 18px #7c3aed88, 0 0 22px 2px #3b82f655; }
+  }
   .brand .title { font-weight:700; font-size:16px; letter-spacing:.2px; }
   .brand .sub { font-size:11px; color:var(--muted); }
   #bar { display:flex; align-items:center; gap:9px; padding:9px 12px;
@@ -73,17 +110,38 @@
   .tab { position:relative; }
 
   /* ---------- panels ---------- */
-  .panel { display:none; animation:fade .2s ease; }
+  .panel { display:none; }
   .panel.active { display:block; }
+  /* stagger children up on tab show */
+  .panel.active > * { animation:riseIn .42s cubic-bezier(.2,.7,.2,1) backwards; }
+  .panel.active > *:nth-child(1){ animation-delay:.00s }
+  .panel.active > *:nth-child(2){ animation-delay:.05s }
+  .panel.active > *:nth-child(3){ animation-delay:.10s }
+  .panel.active > *:nth-child(4){ animation-delay:.15s }
+  .panel.active > *:nth-child(5){ animation-delay:.20s }
+  .panel.active > *:nth-child(6){ animation-delay:.25s }
+  @keyframes riseIn { from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none} }
   @keyframes fade { from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none} }
   h2 { font-size:11px; margin:18px 4px 8px; color:var(--muted2); font-weight:700;
        text-transform:uppercase; letter-spacing:.09em; display:flex; align-items:center; gap:7px; }
   h2::after { content:""; flex:1; height:1px;
               background:linear-gradient(90deg,var(--line),transparent); }
-  .card { background:linear-gradient(180deg,var(--panel),var(--bg2));
+  .card { position:relative; background:linear-gradient(180deg,#141926d9,#0f131cd9);
+          backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
           border:1px solid var(--line); border-radius:var(--r);
-          padding:14px; box-shadow:0 1px 0 #ffffff05 inset; }
+          padding:14px; box-shadow:0 1px 0 #ffffff05 inset, 0 8px 24px #00000040;
+          transition:border-color .3s, box-shadow .3s; }
+  /* sweeping highlight along the top edge of every card */
+  .card::before { content:""; position:absolute; inset:0 0 auto 0; height:1px;
+          background:linear-gradient(90deg, transparent, #60a5fa88, transparent);
+          background-size:50% 100%; background-repeat:no-repeat;
+          animation:edge 6s linear infinite; opacity:.7; }
+  @keyframes edge { from{background-position:-60% 0} to{background-position:160% 0} }
   .card + .card { margin-top:10px; }
+  @media (prefers-reduced-motion: reduce) {
+    .panel.active > * { animation:none; }
+    .card::before { animation:none; opacity:0; }
+  }
 
   /* ---------- sensors ---------- */
   .sensors { display:flex; gap:10px; }
@@ -165,6 +223,7 @@
 </style>
 </head>
 <body>
+<div class="scan"></div>
 <div class="app">
 
   <header>

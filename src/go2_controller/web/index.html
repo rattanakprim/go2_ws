@@ -420,8 +420,11 @@
 // or a full websocket URL ("wss://my-tunnel.example.com").
 function resolveEndpoints(raw) {
   raw = (raw || "").trim();
-  if (!raw) raw = location.hostname;
   const secure = location.protocol === "https:";
+  // The hosted (https) copy can't reach LAN hosts -- browsers block plain ws/http
+  // from a secure page (mixed content) -- but they DO allow localhost. So when
+  // served over https, default to the robot PC itself instead of the web host.
+  if (!raw) raw = secure ? "localhost" : location.hostname;
   if (/^wss?:\/\//i.test(raw)) {
     const u = new URL(raw);
     const httpProto = u.protocol === "wss:" ? "https:" : "http:";
@@ -432,8 +435,13 @@ function resolveEndpoints(raw) {
   }
   let host = raw, port = "9090";
   if (raw.includes(":")) { const p = raw.split(":"); host = p[0]; port = p[1] || "9090"; }
-  const httpBase = `${secure ? "https" : "http"}://${host}:8080/stream`;
-  return { wsUrl:  `${secure ? "wss" : "ws"}://${host}:${port}`,
+  // rosbridge / web_video_server speak plain ws/http (no TLS). localhost is a
+  // "potentially trustworthy origin", so even an https page may use plain
+  // protocols to it -- never upgrade those to wss/https (the handshake fails).
+  const local = /^(localhost|127\.|\[?::1)/i.test(host);
+  const tls = secure && !local;
+  const httpBase = `${tls ? "https" : "http"}://${host}:8080/stream`;
+  return { wsUrl:  `${tls ? "wss" : "ws"}://${host}:${port}`,
            camUrl: `${httpBase}?topic=/camera/image_raw&type=mjpeg`,
            sceneUrl: `${httpBase}?topic=/sim/scene_image&type=ros_compressed`,
            label:  `${host}:${port}` };

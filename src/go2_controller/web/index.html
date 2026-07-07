@@ -175,6 +175,19 @@
   .good   { background:linear-gradient(135deg,#16a34a,var(--good));
             border-color:var(--good); color:#fff; }
 
+  /* ---------- host config bar ---------- */
+  .hostbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+             margin:16px 4px 4px; padding:12px; background:var(--panel);
+             border:1px solid var(--line); border-radius:var(--r-sm); }
+  .hostbar label { font-size:11px; font-weight:700; color:var(--muted2);
+                   text-transform:uppercase; letter-spacing:.06em; }
+  .hostbar input { flex:1; min-width:180px; font-size:13px; color:var(--txt);
+                   background:var(--bg2); border:1px solid var(--line2);
+                   border-radius:var(--r-sm); padding:11px 12px; outline:none; }
+  .hostbar input:focus { border-color:var(--accent); }
+  .hostbar input::placeholder { color:var(--muted2); }
+  .hostbar button { padding:11px 18px; }
+
   /* ---------- drive ---------- */
   .drive { display:flex; gap:16px; align-items:center; }
   #joy { width:158px; height:158px; flex:none; border-radius:50%; position:relative;
@@ -421,6 +434,12 @@
     </div>
   </section>
 
+  <div class="hostbar">
+    <label for="hostin">Robot host</label>
+    <input id="hostin" type="text" autocomplete="off" spellcheck="false"
+           placeholder="e.g. 192.168.1.50  ·  robot.local:9090  ·  wss://tunnel.example.com">
+    <button id="hostgo" class="good">Connect</button>
+  </div>
   <footer>Go2 Control Center · rosbridge @ <code id="hostlbl"></code></footer>
 </div>
 
@@ -435,12 +454,50 @@
 
 <script>
 "use strict";
-// ---- endpoints (same host that served this page) ----
-const HOST  = location.hostname;
-const WS_URL = `ws://${HOST}:9090`;                          // rosbridge
-const CAM_URL = `http://${HOST}:8080/stream?topic=/camera/image_raw&type=mjpeg`;
-document.getElementById("hostlbl").textContent = HOST + ":9090";
-document.getElementById("cam").src = CAM_URL;
+// ---- endpoints (configurable host; defaults to the host that served this page) ----
+// Accepts a bare host ("192.168.1.50"), a host:port ("robot.local:9090"),
+// or a full websocket URL ("wss://my-tunnel.example.com").
+function resolveEndpoints(raw) {
+  raw = (raw || "").trim();
+  if (!raw) raw = location.hostname;
+  const secure = location.protocol === "https:";
+  if (/^wss?:\/\//i.test(raw)) {
+    const u = new URL(raw);
+    const httpProto = u.protocol === "wss:" ? "https:" : "http:";
+    return { wsUrl: raw.replace(/\/+$/, ""),
+             camUrl: `${httpProto}//${u.hostname}:8080/stream?topic=/camera/image_raw&type=mjpeg`,
+             label: u.host };
+  }
+  let host = raw, port = "9090";
+  if (raw.includes(":")) { const p = raw.split(":"); host = p[0]; port = p[1] || "9090"; }
+  return { wsUrl:  `${secure ? "wss" : "ws"}://${host}:${port}`,
+           camUrl: `${secure ? "https" : "http"}://${host}:8080/stream?topic=/camera/image_raw&type=mjpeg`,
+           label:  `${host}:${port}` };
+}
+let endpoints = resolveEndpoints(localStorage.getItem("go2_host") || "");
+function applyEndpoints() {
+  document.getElementById("hostlbl").textContent = endpoints.label;
+  document.getElementById("cam").src = endpoints.camUrl;
+}
+applyEndpoints();
+
+// ---- host config box ----
+(function () {
+  const inp = document.getElementById("hostin");
+  const btn = document.getElementById("hostgo");
+  inp.value = localStorage.getItem("go2_host") || "";
+  function setHost() {
+    const v = inp.value.trim();
+    localStorage.setItem("go2_host", v);
+    endpoints = resolveEndpoints(v);
+    applyEndpoints();
+    stateEl.textContent = "connecting…";
+    if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} }
+    connect();
+  }
+  btn.addEventListener("click", setHost);
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") setHost(); });
+})();
 
 // ---- minimal rosbridge client (vanilla, no roslibjs) ----
 let ws = null, wsReady = false;
@@ -448,7 +505,7 @@ const dot = document.getElementById("dot");
 const stateEl = document.getElementById("state");
 
 function connect() {
-  ws = new WebSocket(WS_URL);
+  ws = new WebSocket(endpoints.wsUrl);
   ws.onopen = () => {
     wsReady = true; dot.classList.add("ok"); stateEl.textContent = "connected";
     advertise("/cmd_vel", "geometry_msgs/Twist");

@@ -51,6 +51,45 @@ Desktop GUI: `ros2 run go2_controller gui_teleop`. The Map section has Autonomou
 Auto-explore, Follow toggles + Save-map; the Move-ball panel (joystick/buttons) steers the
 sim ball for the follow demo.
 
+## Remote control over the internet (tunnel)
+
+The web control panel is also published as a static page at
+**<https://rattanakprim.github.io/quadruped/>**. Loading it there shows the full UI, but the
+controls only work once its **"Robot host"** box points at a *reachable* rosbridge. Because the
+page is served over HTTPS, browsers block plain `ws://`/`http://` to a LAN IP — you need a
+secure `wss://` endpoint. A [Cloudflare tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+gives you one for free with no account.
+
+```bash
+# 0. one-time: install cloudflared (Debian/Ubuntu)
+#    see https://pkg.cloudflare.com/ — or: sudo apt install cloudflared
+
+# 1. start the panel + rosbridge + camera on the robot/PC (as usual)
+ros2 launch go2_controller phone_teleop.launch.py
+
+# 2. expose rosbridge (:9090) over a public wss:// URL — leave this running
+cloudflared tunnel --url http://localhost:9090
+#    prints e.g.  https://random-words-1234.trycloudflare.com
+```
+
+Then, on the github.io page, paste the tunnel host into the **Robot host** box as a full
+websocket URL and hit **Connect** (`https://` → `wss://`):
+
+```
+wss://random-words-1234.trycloudflare.com
+```
+
+Notes:
+- The URL is entered once and saved in the browser (`localStorage`); it changes each time you
+  restart `cloudflared` unless you set up a [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/named-tunnels/).
+- The camera stream (`web_video_server` on `:8080`) needs its **own** tunnel if you want live
+  video remotely — run a second `cloudflared tunnel --url http://localhost:8080`. Control alone
+  only needs the `:9090` tunnel above.
+- **On the same WiFi/LAN you don't need any of this** — just open `http://<robot-ip>:8000`
+  directly (the `phone_teleop` panel), which talks to rosbridge over plain `ws://`.
+- Anyone with the tunnel URL can drive the robot while it's running. Stop `cloudflared`
+  (Ctrl-C) when you're done.
+
 ## Capabilities
 
 - **Locomotion:** stable crawl gait (+ experimental trot/pace/bound/pronk), postures

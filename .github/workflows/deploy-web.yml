@@ -1,0 +1,46 @@
+name: Deploy web panel to Pages
+
+# Auto-publishes src/go2_controller/web/ to the /quadruped/ folder of the
+# rattanakprim.github.io repo, so the live control panel at
+# https://rattanakprim.github.io/quadruped/ always tracks this repo.
+# Uses an SSH deploy key stored in the PAGES_DEPLOY_KEY secret.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/go2_controller/web/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:        # allow manual runs from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout go2_ws
+        uses: actions/checkout@v4
+
+      - name: Checkout target Pages repo
+        uses: actions/checkout@v4
+        with:
+          repository: rattanakprim/rattanakprim.github.io
+          path: pages
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+
+      - name: Copy web panel into /quadruped/
+        run: |
+          mkdir -p pages/quadruped
+          cp src/go2_controller/web/index.html pages/quadruped/index.html
+
+      - name: Commit & push if changed
+        run: |
+          cd pages
+          git config user.name "go2-web-deploy[bot]"
+          git config user.email "actions@github.com"
+          if git diff --quiet; then
+            echo "No changes to publish."
+            exit 0
+          fi
+          git add quadruped/index.html
+          git commit -m "Auto-deploy web panel from go2_ws@${GITHUB_SHA::7}"
+          git push

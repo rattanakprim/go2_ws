@@ -6,6 +6,7 @@ target joint angles, and exposes the robot state (base pose, joint states).
 Used by the ROS 2 node, but has no ROS dependency so it can be tested alone.
 """
 import math
+import threading
 
 import numpy as np
 import mujoco
@@ -36,6 +37,10 @@ class Go2Sim:
         self._scene_renderer = None
         self._scene_size = None
         self._scene_cam = None
+        # Thread-safe snapshot of the sim state so camera/scene rendering can run
+        # on a background thread without racing the physics step (see snapshot()).
+        self._render_lock = threading.Lock()
+        self._snap = mujoco.MjData(self.model)
         self._lidar_sid = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_SITE, "lidar")
         # qvel/qpos address of the sports ball's free joint (GUI ball-driving / reset)
@@ -60,6 +65,18 @@ class Go2Sim:
                            and self.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX]
         self._ik_data = mujoco.MjData(self.model) if self.n_arm else None
         self.reset_to_stand()
+        self.snapshot()                                        # seed render buffer
+
+    def snapshot(self):
+        """Copy the live sim state into the render buffer. Call once per control
+        tick from the control thread; camera/scene renders then read this copy on
+        their own thread, so the GPU work never blocks the control loop. We copy
+        qpos/qvel and recompute the derived geometry (xpos/xmat/...) with a single
+        mj_forward -- everything the renderer needs, without racing mj_step."""
+        with self._render_lock:
+            self._snap.qpos[:] = self.data.qpos
+            self._snap.qvel[:] = self.data.qvel
+            mujoco.mj_forward(self.model, self._snap)
 
     # --- arm forward/inverse kinematics for grasping (Piper) ---
     def body_xpos(self, name):
@@ -219,7 +236,8 @@ class Go2Sim:
         if self._renderer is None or self._cam_size != (height, width):
             self._renderer = mujoco.Renderer(self.model, height, width)
             self._cam_size = (height, width)
-        self._renderer.update_scene(self.data, camera=name)
+        with self._render_lock:
+            self._renderer.update_scene(self._snap, camera=name)
         return self._renderer.render()
 
     def render_scene(self, width=480, height=360, distance=2.2,
@@ -238,7 +256,8 @@ class Go2Sim:
                 self.model, mujoco.mjtObj.mjOBJ_BODY, "base")
             cam.distance, cam.azimuth, cam.elevation = distance, azimuth, elevation
             self._scene_cam = cam
-        self._scene_renderer.update_scene(self.data, camera=self._scene_cam)
+        with self._render_lock:
+            self._scene_renderer.update_scene(self._snap, camera=self._scene_cam)
         return self._scene_renderer.render()
 
     # --- lidar (horizontal 360 deg scan via ray casting) ---

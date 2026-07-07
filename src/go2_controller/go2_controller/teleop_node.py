@@ -390,6 +390,7 @@ class Go2TeleopNode(Node):
             self.sim.set_target(self._target_for_mode(vx, vy, wz))
             self.sim.step()
             self.sim_time += self.sim.dt
+        self.sim.snapshot()             # refresh the buffer the render thread reads
 
         if not self.sim.sync_viewer():      # viewer window was closed
             self.get_logger().info("Viewer closed; continuing headless "
@@ -640,6 +641,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node.sensors.stop()
         node.sim.close()
         if rclpy.ok():
             node.destroy_node()

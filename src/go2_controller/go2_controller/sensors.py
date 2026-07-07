@@ -18,6 +18,8 @@ Publishes:
     points              (sensor_msgs/PointCloud2)   -- 3D lidar (if sensor_msgs_py present)
 """
 import math
+import threading
+import time
 
 from std_msgs.msg import Header
 from sensor_msgs.msg import Image, CameraInfo, LaserScan, PointCloud2
@@ -39,33 +41,49 @@ class SensorPublisher:
         node.declare_parameter("camera_rate", 15.0)    # Hz
         node.declare_parameter("camera_width", 320)
         node.declare_parameter("camera_height", 240)
-        node.declare_parameter("use_scene_cam", True)  # third-person chase view
-        node.declare_parameter("scene_rate", 12.0)     # Hz
-        node.declare_parameter("scene_width", 640)
-        node.declare_parameter("scene_height", 480)
+        # Third-person chase view streamed to the web panel. Kept modest (480x360
+        # @10 Hz): rendering is off-thread, but building + serialising each frame
+        # still holds the GIL, and a heavier stream (e.g. 640x480@12) starved the
+        # 50 Hz control loop down to ~32 Hz. The web stage scales this up, so the
+        # on-page view stays large. Raise these if your control loop has headroom.
+        node.declare_parameter("use_scene_cam", True)
+        node.declare_parameter("scene_rate", 10.0)     # Hz
+        node.declare_parameter("scene_width", 480)
+        node.declare_parameter("scene_height", 360)
         node.declare_parameter("lidar_rate", 10.0)     # Hz
         node.declare_parameter("lidar_rays", 360)      # 1deg resolution (better SLAM)
         node.declare_parameter("lidar_range", 10.0)    # m
         node.declare_parameter("lidar_cloud_rate", 8.0)  # Hz (3D PointCloud2)
 
-        # --- camera ---
+        # --- camera + third-person "scene" view ---
+        # Both are GPU renders (~6-8 ms/frame). Run them on a dedicated background
+        # thread (see _render_loop) so rendering never blocks the 50 Hz control /
+        # physics loop -- that blocking is what made teleop feel laggy. The thread
+        # reads a thread-safe snapshot of the sim (sim.snapshot(), taken each
+        # control tick), so it doesn't race the physics stepping.
         self.cam_w = node.get_parameter("camera_width").value
         self.cam_h = node.get_parameter("camera_height").value
         self._cam_failed = False
-        if node.get_parameter("use_camera").value and sim.has_camera():
+        self._cam_on = node.get_parameter("use_camera").value and sim.has_camera()
+        if self._cam_on:
             self.img_pub = node.create_publisher(Image, "camera/image_raw", 10)
             self.caminfo_pub = node.create_publisher(CameraInfo, "camera/camera_info", 10)
-            node.create_timer(1.0 / node.get_parameter("camera_rate").value,
-                              self.camera_tick)
+            self.cam_period = 1.0 / node.get_parameter("camera_rate").value
 
-        # --- third-person "scene" camera (streamed to the web panel) ---
         self.scene_w = node.get_parameter("scene_width").value
         self.scene_h = node.get_parameter("scene_height").value
         self._scene_failed = False
-        if node.get_parameter("use_scene_cam").value:
+        self._scene_on = node.get_parameter("use_scene_cam").value
+        if self._scene_on:
             self.scene_pub = node.create_publisher(Image, "sim/scene_image", 10)
-            node.create_timer(1.0 / node.get_parameter("scene_rate").value,
-                              self.scene_tick)
+            self.scene_period = 1.0 / node.get_parameter("scene_rate").value
+
+        self._stop = None
+        if self._cam_on or self._scene_on:
+            self._stop = threading.Event()
+            self._render_thread = threading.Thread(
+                target=self._render_loop, name="sim_render", daemon=True)
+            self._render_thread.start()
 
         # --- lidar (2D scan + optional 3D cloud) ---
         if node.get_parameter("use_lidar").value:
@@ -132,6 +150,32 @@ class SensorPublisher:
         msg.step = img.shape[1] * 3
         msg.data = img.tobytes()
         self.scene_pub.publish(msg)
+
+    def _render_loop(self):
+        """Render camera + scene off the control thread, each at its own rate."""
+        next_cam = next_scene = time.monotonic()
+        while not self._stop.is_set():
+            now = time.monotonic()
+            if self._cam_on and not self._cam_failed and now >= next_cam:
+                next_cam = now + self.cam_period
+                self.camera_tick()
+            if self._scene_on and not self._scene_failed and now >= next_scene:
+                next_scene = now + self.scene_period
+                self.scene_tick()
+            # sleep until the next render is due (bounded so stop() stays snappy)
+            due = []
+            if self._cam_on and not self._cam_failed:
+                due.append(next_cam)
+            if self._scene_on and not self._scene_failed:
+                due.append(next_scene)
+            wait = (min(due) - time.monotonic()) if due else 0.1
+            self._stop.wait(max(0.001, min(wait, 0.1)))
+
+    def stop(self):
+        """Stop the background render thread (call on shutdown)."""
+        if self._stop is not None:
+            self._stop.set()
+            self._render_thread.join(timeout=1.0)
 
     def lidar_tick(self):
         ranges = self.sim.lidar_scan(self.lidar_rays, self.lidar_range)

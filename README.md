@@ -90,6 +90,32 @@ Notes:
 - Anyone with the tunnel URL can drive the robot while it's running. Stop `cloudflared`
   (Ctrl-C) when you're done.
 
+## Web panel auto-deploy (CI)
+
+The live page at **<https://rattanakprim.github.io/quadruped/>** is published automatically from
+this repo — **`src/go2_controller/web/index.html` is the single source of truth.** Don't hand-edit
+the published copy; it gets overwritten on the next deploy.
+
+```
+edit src/go2_controller/web/**  →  git push  →  GitHub Actions  →  rattanakprim.github.io/quadruped/
+```
+
+- **Workflow:** [`.github/workflows/deploy-web.yml`](.github/workflows/deploy-web.yml). Triggers on
+  any push to `main` that touches `src/go2_controller/web/**` (or the workflow file), plus manual
+  runs via the Actions tab (`workflow_dispatch`). It checks out the
+  [`rattanakprim.github.io`](https://github.com/rattanakprim/rattanakprim.github.io) repo, copies
+  the panel into `quadruped/`, and commits + pushes only if it changed. Live page updates ~1 min
+  later (GitHub Pages rebuild).
+- **Credential:** a dedicated **SSH deploy key** (write access) on the `rattanakprim.github.io`
+  repo, with its private half stored as the `PAGES_DEPLOY_KEY` secret in this repo. No personal
+  access token involved.
+- **To retarget** (different repo/folder/URL): edit the `repository:` and copy `path` in the
+  workflow. **To rotate/revoke** the credential: delete the deploy key on the target repo
+  (Settings → Deploy keys) and update the `PAGES_DEPLOY_KEY` secret here.
+
+> This pipeline unifies *source + hosting*, not robot control — the published page still reaches the
+> robot only over LAN or the tunnel above (see previous section).
+
 ## Capabilities
 
 - **Locomotion:** stable crawl gait (+ experimental trot/pace/bound/pronk), postures

@@ -20,140 +20,70 @@
     --txt:#e7ecf5; --muted:#8a93a6; --muted2:#5d6679;
     --r:14px; --r-sm:10px;
   }
-  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent;
-      -webkit-user-select:none; user-select:none; touch-action:manipulation; }
-  html,body { margin:0; background:var(--bg); color:var(--txt); min-height:100vh;
-              font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-              font-size:14px; line-height:1.4; }
-  body { position:relative; overflow-x:hidden;
-    background:
-      radial-gradient(120% 75% at 50% -5%, #18223f 0%, transparent 55%),
-      radial-gradient(120% 70% at 50% 105%, #1a1530 0%, transparent 55%),
-      var(--bg); }
-  /* ---------- animated ambient background ---------- */
-  /* drifting aurora glows */
-  body::before { content:""; position:fixed; inset:-5% -5% -5% -5%; z-index:-2;
-    background:
-      radial-gradient(44% 40% at 16% 14%, #3b82f6cc 0%, transparent 60%),
-      radial-gradient(42% 36% at 86% 22%, #8b5cf6c2 0%, transparent 60%),
-      radial-gradient(50% 44% at 64% 92%, #06b6d4a8 0%, transparent 62%),
-      radial-gradient(40% 36% at 8% 76%, #22c55e8a 0%, transparent 60%),
-      radial-gradient(30% 28% at 92% 70%, #ec489985 0%, transparent 62%);
-    filter:blur(3px) saturate(1.3);
-    animation:aurora 14s ease-in-out infinite alternate, hue 30s linear infinite; }
-  /* panning HUD grid (tinted + glowing) */
-  body::after { content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
-    background-image:
-      linear-gradient(#60a5fa1f 1px, transparent 1px),
-      linear-gradient(90deg, #60a5fa1f 1px, transparent 1px);
-    background-size:40px 40px; mask-image:radial-gradient(circle at 50% 28%, #000 0%, transparent 82%);
-    -webkit-mask-image:radial-gradient(circle at 50% 28%, #000 0%, transparent 82%);
-    animation:gridpan 22s linear infinite; }
-  @keyframes aurora {
-    0%   { transform:translate3d(0,0,0) scale(1.02);   opacity:1; }
-    50%  { transform:translate3d(-5%,3%,0) scale(1.14); opacity:1; }
-    100% { transform:translate3d(4%,-3%,0) scale(1.07); opacity:.92; }
-  }
-  @keyframes hue { from { filter:blur(3px) saturate(1.3) hue-rotate(0deg); }
-                   to   { filter:blur(3px) saturate(1.3) hue-rotate(360deg); } }
-  @keyframes gridpan { from { background-position:0 0, 0 0; }
-                       to   { background-position:40px 40px, 40px 40px; } }
-  /* bright scan sweep across the whole viewport */
-  .scan { position:fixed; left:0; right:0; top:0; height:200px; z-index:-1; pointer-events:none;
-    background:linear-gradient(180deg, transparent, #3b82f626 42%, #93c5fd55 50%, #3b82f626 58%, transparent);
-    box-shadow:0 0 40px #3b82f633; animation:sweep 4.5s linear infinite; }
-  @keyframes sweep { 0% { transform:translateY(-220px); opacity:0; }
-                     6% { opacity:1; } 94% { opacity:1; }
-                     100% { transform:translateY(105vh); opacity:0; } }
-  .app { max-width:600px; margin:0 auto; position:relative; z-index:1;
-         padding:0 12px calc(86px + env(safe-area-inset-bottom)); }
-  @media (prefers-reduced-motion: reduce) {
-    body::before, body::after, .scan { animation:none; }
-  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+              font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+              font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased; }
+  body { overflow:hidden; }               /* desktop: the console owns scrolling */
 
-  /* ---------- top bar ---------- */
-  header { position:sticky; top:0; z-index:20; padding:12px 0 8px;
-           background:linear-gradient(var(--bg) 70%, transparent);
-           backdrop-filter:blur(6px); }
-  .brand { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-  .logo { width:34px; height:34px; border-radius:9px; flex:none;
-          background:linear-gradient(135deg, var(--accent), var(--purple));
-          display:grid; place-items:center; font-weight:800; font-size:15px;
-          color:#fff; box-shadow:0 4px 14px #3b82f655;
-          animation:logoGlow 3.5s ease-in-out infinite; }
-  @keyframes logoGlow {
-    0%,100% { box-shadow:0 4px 14px #3b82f555, 0 0 0 0 #3b82f600; }
-    50%     { box-shadow:0 4px 18px #7c3aed88, 0 0 22px 2px #3b82f655; }
-  }
-  .brand .title { font-weight:700; font-size:16px; letter-spacing:.2px; }
-  .brand .sub { font-size:11px; color:var(--muted); }
-  #bar { display:flex; align-items:center; gap:9px; padding:9px 12px;
-         background:var(--panel); border:1px solid var(--line); border-radius:12px;
-         font-size:13px; }
-  #dot { width:9px; height:9px; border-radius:50%; background:var(--danger); flex:none;
-         box-shadow:0 0 0 0 #ef444466; animation:pulse 1.6s infinite; }
-  #dot.ok { background:var(--good); box-shadow:0 0 0 0 #22c55e66; }
-  @keyframes pulse { 0%{box-shadow:0 0 0 0 currentColor} 70%{box-shadow:0 0 0 7px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+  /* ---------- app shell: sim stage | control console ---------- */
+  .shell { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(380px,1fr);
+           height:100dvh; }
+  .stage { display:flex; flex-direction:column; gap:12px; min-height:0; padding:16px;
+           background:radial-gradient(120% 80% at 30% 0%, #16203a 0%, transparent 60%), var(--bg2);
+           border-right:1px solid var(--line); }
+  .console { min-height:0; overflow-y:auto; background:var(--bg); }
+
+  /* brand */
+  .brand { display:flex; align-items:center; gap:11px; flex:none; }
+  .logo { width:38px; height:38px; border-radius:10px; flex:none;
+          background:linear-gradient(135deg,var(--accent),var(--purple));
+          display:grid; place-items:center; font-weight:800; font-size:16px; color:#fff;
+          box-shadow:0 4px 14px #3b82f544; }
+  .brandtext .title { font-weight:700; font-size:16px; letter-spacing:.2px; }
+  .brandtext .sub { font-size:11.5px; color:var(--muted); }
+
+  /* persistent sim viewport (stays visible while you switch control tabs) */
+  .viewport { position:relative; flex:1; min-height:220px; border-radius:var(--r);
+              overflow:hidden; background:#05070c; border:1px solid var(--line);
+              box-shadow:0 10px 30px #0005, 0 0 0 1px #ffffff05 inset; }
+  #sim { width:100%; height:100%; object-fit:cover; display:block; background:#05070c; }
+  .hud { position:absolute; top:10px; left:10px; display:flex; align-items:center; gap:9px;
+         padding:7px 11px; font-size:12.5px; border-radius:999px;
+         background:rgba(8,12,20,.72); backdrop-filter:blur(8px); border:1px solid var(--line2); }
+  #dot { width:9px; height:9px; border-radius:50%; background:var(--danger); flex:none; }
+  #dot.ok { background:var(--good); box-shadow:0 0 8px var(--good); }
   #state { font-weight:600; }
-  #vel { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums;
-         font-size:12px; padding:3px 8px; background:var(--bg2); border-radius:7px;
-         border:1px solid var(--line); }
+  #vel { margin-left:2px; color:var(--muted); font-variant-numeric:tabular-nums; font-size:11.5px;
+         padding:2px 8px; background:#0a0e16; border-radius:6px; border:1px solid var(--line); }
+  .stagefoot { display:flex; gap:8px; flex-wrap:wrap; flex:none; }
 
-  /* ---------- bottom nav bar (fixed, native-app style) ---------- */
-  nav.tabs { position:fixed; left:0; right:0; bottom:0; z-index:30;
-             display:flex; padding:6px 8px calc(6px + env(safe-area-inset-bottom));
-             gap:2px; background:rgba(15,19,28,.92); backdrop-filter:blur(14px);
-             border-top:1px solid var(--line2); box-shadow:0 -6px 24px #0006; }
-  .tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
-         padding:7px 2px 5px; border-radius:12px; font-size:10px; font-weight:600;
-         letter-spacing:.01em; color:var(--muted); background:transparent;
-         border:1px solid transparent; cursor:pointer; white-space:nowrap;
-         transition:.15s; }
-  .tab .ic { font-size:19px; line-height:1; filter:grayscale(.4); opacity:.8;
-             transition:.15s; }
-  .tab:active { transform:scale(.92); }
-  .tab.active { color:#fff; background:linear-gradient(160deg,#1d2740,#172033);
-                border-color:var(--line2); box-shadow:0 2px 10px #0005 inset; }
-  .tab.active .ic { filter:none; opacity:1; transform:translateY(-1px); }
-  .tab.active::before { content:""; position:absolute; top:-1px; width:26px; height:3px;
-                        border-radius:0 0 3px 3px;
-                        background:linear-gradient(90deg,var(--accent),var(--purple));
-                        box-shadow:0 0 10px var(--accent); }
-  .tab { position:relative; }
+  /* ---------- console tabs (category switcher, sticky on top) ---------- */
+  nav.tabs { position:sticky; top:0; z-index:20; display:flex; gap:2px; padding:0 12px;
+             background:rgba(14,19,29,.96); backdrop-filter:blur(10px);
+             border-bottom:1px solid var(--line); overflow-x:auto; scrollbar-width:none; }
+  nav.tabs::-webkit-scrollbar { display:none; }
+  .tab { appearance:none; -webkit-appearance:none; flex:none; padding:15px 15px 13px;
+         font-size:13px; font-weight:600; color:var(--muted); background:none; border:none;
+         border-bottom:2px solid transparent; cursor:pointer; white-space:nowrap;
+         transition:color .15s, border-color .15s; }
+  .tab:hover { color:var(--txt); }
+  .tab.active { color:#fff; border-bottom-color:var(--accent); }
+  .panels { padding:14px 16px 28px; }
 
   /* ---------- panels ---------- */
   .panel { display:none; }
-  .panel.active { display:block; }
-  /* stagger children up on tab show */
-  .panel.active > * { animation:riseIn .5s cubic-bezier(.16,1.1,.3,1) backwards; }
-  .panel.active > *:nth-child(1){ animation-delay:.00s }
-  .panel.active > *:nth-child(2){ animation-delay:.06s }
-  .panel.active > *:nth-child(3){ animation-delay:.12s }
-  .panel.active > *:nth-child(4){ animation-delay:.18s }
-  .panel.active > *:nth-child(5){ animation-delay:.24s }
-  .panel.active > *:nth-child(6){ animation-delay:.30s }
-  @keyframes riseIn { from{opacity:0; transform:translateY(22px) scale(.97)} to{opacity:1; transform:none} }
+  .panel.active { display:block; animation:fade .22s ease; }
   @keyframes fade { from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none} }
-  h2 { font-size:11px; margin:18px 4px 8px; color:var(--muted2); font-weight:700;
-       text-transform:uppercase; letter-spacing:.09em; display:flex; align-items:center; gap:7px; }
+  h2 { font-size:11px; margin:18px 2px 9px; color:var(--muted2); font-weight:700;
+       text-transform:uppercase; letter-spacing:.09em; display:flex; align-items:center; gap:8px; }
+  h2:first-child { margin-top:6px; }
   h2::after { content:""; flex:1; height:1px;
               background:linear-gradient(90deg,var(--line),transparent); }
-  .card { position:relative; background:linear-gradient(180deg,#141926d9,#0f131cd9);
-          backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-          border:1px solid var(--line); border-radius:var(--r);
-          padding:14px; box-shadow:0 1px 0 #ffffff05 inset, 0 8px 24px #00000040;
-          transition:border-color .3s, box-shadow .3s; }
-  /* sweeping highlight along the top edge of every card */
-  .card::before { content:""; position:absolute; inset:0 0 auto 0; height:2px;
-          background:linear-gradient(90deg, transparent, #93c5fd, #c4b5fd, transparent);
-          background-size:45% 100%; background-repeat:no-repeat; border-radius:var(--r) var(--r) 0 0;
-          box-shadow:0 0 8px #60a5fa66; animation:edge 3.8s linear infinite; opacity:.9; }
-  @keyframes edge { from{background-position:-60% 0} to{background-position:160% 0} }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
+          padding:14px; box-shadow:0 1px 0 #ffffff06 inset; }
   .card + .card { margin-top:10px; }
-  @media (prefers-reduced-motion: reduce) {
-    .panel.active > * { animation:none; }
-    .card::before { animation:none; opacity:0; }
-  }
+  @media (prefers-reduced-motion: reduce) { .panel.active { animation:none; } }
 
   /* ---------- sensors ---------- */
   .sensors { display:flex; gap:10px; }
@@ -162,8 +92,6 @@
          align-items:center; gap:5px; font-weight:600; }
   .lbl code { font-weight:400; color:var(--muted2); font-size:10px; }
   #cam { width:100%; aspect-ratio:1/1; object-fit:cover; background:#0b0b0b;
-         border-radius:var(--r-sm); display:block; border:1px solid var(--line); }
-  #sim { width:100%; aspect-ratio:4/3; object-fit:cover; background:#0b0b0b;
          border-radius:var(--r-sm); display:block; border:1px solid var(--line); }
   #lidar { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:var(--r-sm);
            display:block; border:1px solid var(--line); }
@@ -245,36 +173,58 @@
           color:var(--muted); background:var(--bg2); border:1px solid var(--line);
           padding:3px 8px; border-radius:7px; }
 
-  footer { text-align:center; margin:20px 0; font-size:11px; color:var(--muted2); }
+  footer { margin:22px 2px 6px; font-size:11px; color:var(--muted2); }
   footer code { color:var(--muted); }
+
+  /* ---------- responsive: stack on phones, pin the sim on top ---------- */
+  @media (max-width:900px) {
+    body { overflow:auto; }
+    .shell { grid-template-columns:1fr; height:auto; }
+    .stage { position:sticky; top:0; z-index:30; gap:10px; padding:12px;
+             border-right:none; border-bottom:1px solid var(--line); }
+    .brandtext .sub, .stagefoot { display:none; }
+    .viewport { flex:none; aspect-ratio:16/10; min-height:0; }
+    .console { overflow:visible; }
+  }
 </style>
 </head>
 <body>
-<div class="scan"></div>
-<div class="app">
+<div class="shell">
 
-  <header>
+  <!-- ============ LEFT: persistent simulation stage ============ -->
+  <aside class="stage">
     <div class="brand">
       <div class="logo">G2</div>
-      <div>
+      <div class="brandtext">
         <div class="title">Go2 Control Center</div>
         <div class="sub">Unitree Go2 · quadruped + Piper arm</div>
       </div>
     </div>
-    <div id="bar"><span id="dot"></span><span id="state">connecting…</span>
-      <span id="vel">stopped</span></div>
-  </header>
+    <div class="viewport">
+      <img id="sim" alt="live simulation">
+      <div class="hud"><span id="dot"></span><span id="state">connecting…</span>
+        <span id="vel">stopped</span></div>
+    </div>
+    <div class="stagefoot">
+      <span class="chip">🎮 MuJoCo scene · <code>/sim/scene_image</code></span>
+      <span class="chip">third-person chase</span>
+    </div>
+  </aside>
+
+  <!-- ============ RIGHT: control console ============ -->
+  <main class="console">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="dash">Dashboard</button>
+      <button class="tab" data-tab="drive">Drive</button>
+      <button class="tab" data-tab="auto">Autonomy</button>
+      <button class="tab" data-tab="posture">Posture</button>
+      <button class="tab" data-tab="pose">Pose</button>
+      <button class="tab" data-tab="arm">Arm</button>
+    </nav>
+    <div class="panels">
 
   <!-- ============ DASHBOARD ============ -->
   <section class="panel active" data-panel="dash">
-    <h2>Live Simulation</h2>
-    <div class="card">
-      <div class="lbl">🎮 MuJoCo scene <code>/sim/scene_image</code> · third-person chase view</div>
-      <img id="sim" alt="live simulation">
-      <div class="note">Live view of the running MuJoCo sim. Drive and pose the robot from
-        the <b>Drive</b>, <b>Posture</b> and <b>Arm</b> tabs and watch it move here.</div>
-    </div>
-
     <h2>Live Sensors</h2>
     <div class="card sensors">
       <div><div class="lbl">📷 Camera <code>/camera/image_raw</code></div>
@@ -455,16 +405,9 @@
     <button id="hostgo" class="good">Connect</button>
   </div>
   <footer>Go2 Control Center · rosbridge @ <code id="hostlbl"></code></footer>
-</div>
-
-<nav class="tabs" id="tabs">
-  <button class="tab active" data-tab="dash"><span class="ic">📊</span>Dashboard</button>
-  <button class="tab" data-tab="drive"><span class="ic">🕹️</span>Drive</button>
-  <button class="tab" data-tab="auto"><span class="ic">🗺️</span>Autonomy</button>
-  <button class="tab" data-tab="posture"><span class="ic">🐕</span>Posture</button>
-  <button class="tab" data-tab="pose"><span class="ic">🎚️</span>Pose</button>
-  <button class="tab" data-tab="arm"><span class="ic">🦾</span>Arm</button>
-</nav>
+    </div><!-- /.panels -->
+  </main>
+</div><!-- /.shell -->
 
 <script>
 "use strict";
@@ -569,7 +512,8 @@ tabs.forEach(t => t.addEventListener("click", () => {
   t.classList.add("active");
   const tgt = document.querySelector(`.panel[data-panel="${t.dataset.tab}"]`);
   tgt.classList.add("active");
-  window.scrollTo({top:0, behavior:"instant"});   // start each tab at the top
+  const _con = document.querySelector(".console");   // start each tab at the top
+  if (_con) _con.scrollTo({top:0}); window.scrollTo({top:0});
   if (mapImg) drawMap();   // map canvas may have been hidden; redraw on show
 }));
 

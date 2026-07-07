@@ -41,8 +41,8 @@ class SensorPublisher:
         node.declare_parameter("camera_height", 240)
         node.declare_parameter("use_scene_cam", True)  # third-person chase view
         node.declare_parameter("scene_rate", 12.0)     # Hz
-        node.declare_parameter("scene_width", 480)
-        node.declare_parameter("scene_height", 360)
+        node.declare_parameter("scene_width", 640)
+        node.declare_parameter("scene_height", 480)
         node.declare_parameter("lidar_rate", 10.0)     # Hz
         node.declare_parameter("lidar_rays", 360)      # 1deg resolution (better SLAM)
         node.declare_parameter("lidar_range", 10.0)    # m

@@ -294,6 +294,25 @@ class Go2TeleopNode(Node):
                 self.get_logger().info(f"gait: {name}")
             else:
                 self.get_logger().warn(f"unknown gait '{name}' (have {list(GAITS)})")
+        elif a in ("reset", "home", "reset_home"):
+            had_nav = self.nav_goal is not None or self._route_active
+            self.sim.reset_to_stand()
+            self.routine, self.mode = None, "walk"
+            self.body_pose = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0, "height": 0.0}
+            self.vx = self.vy = self.wz = 0.0
+            self.cvx = self.cvy = self.cwz = 0.0
+            self.nav_goal, self._route, self._route_active = None, [], False
+            self._task = self._demo = None
+            if had_nav:
+                # Nav2 may still hold a pre-teleport goal and would march the
+                # robot back to it; repoint it at home so it stops where the
+                # robot now stands.
+                m = PoseStamped()
+                m.header.frame_id = "map"
+                m.header.stamp = self.get_clock().now().to_msg()
+                m.pose.orientation.w = 1.0
+                self.goal_pub.publish(m)
+            self.get_logger().info("action: reset to home position")
         else:
             self.get_logger().warn(f"unknown action '{a}'")
 

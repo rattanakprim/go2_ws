@@ -333,8 +333,10 @@
         <button data-act="shake">🤝 Shake</button>
         <button data-act="dance">💃 Dance</button>
         <button data-act="selfright">Self-right*</button>
+        <button data-act="reset" id="resethome" class="good">⌂ Reset home</button>
       </div>
-      <div class="note">*experimental — open-loop self-right rarely succeeds.</div>
+      <div class="note">*experimental — open-loop self-right rarely succeeds.
+        ⌂ Reset teleports the sim back to its spawn pose and cancels driving/nav.</div>
     </div>
   </section>
 
@@ -894,6 +896,24 @@ document.getElementById("wpstart").addEventListener("click", () => {
 document.getElementById("wpclear").addEventListener("click", () => {
   route = []; document.getElementById("wpcount").textContent = "0 points";
   sendWaypoints([]); drawMap();
+});
+
+// ---- reset home: snap the sim robot back to its spawn pose ----
+// The generic [data-act] handler already stops driving and sends the "reset"
+// action; here we sync the panel to the reset robot: zero the pose sliders
+// (the 50 ms loop would instantly re-apply a stale lean), park the arm sliders
+// at home, and drop every nav/autonomy mode so nothing drives it away again.
+document.getElementById("resethome").addEventListener("click", () => {
+  document.getElementById("resetpose").click();
+  setArm(ARM_PRESETS.home);
+  setExplore(false); setFollow(false);
+  navChk.checked = false; navMode = false;
+  wpChk.checked = false; wpMode = false;
+  route = []; document.getElementById("wpcount").textContent = "0 points";
+  sendWaypoints([]);                    // also cancels an active waypoint route
+  goalWorld = null;
+  mapEls().forEach(c => c.classList.remove("armed"));
+  drawMap();
 });
 
 // ---- scene camera orbit / zoom (drives the server-rendered view) ----

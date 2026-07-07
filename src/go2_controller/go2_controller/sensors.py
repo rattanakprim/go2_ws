@@ -13,6 +13,7 @@ Parameters (declared on the owning node):
 Publishes:
     camera/image_raw    (sensor_msgs/Image)        -- front RGB camera
     camera/camera_info  (sensor_msgs/CameraInfo)
+    sim/scene_image     (sensor_msgs/Image)        -- third-person chase view
     scan                (sensor_msgs/LaserScan)     -- 360deg 2D lidar
     points              (sensor_msgs/PointCloud2)   -- 3D lidar (if sensor_msgs_py present)
 """
@@ -38,6 +39,10 @@ class SensorPublisher:
         node.declare_parameter("camera_rate", 15.0)    # Hz
         node.declare_parameter("camera_width", 320)
         node.declare_parameter("camera_height", 240)
+        node.declare_parameter("use_scene_cam", True)  # third-person chase view
+        node.declare_parameter("scene_rate", 12.0)     # Hz
+        node.declare_parameter("scene_width", 480)
+        node.declare_parameter("scene_height", 360)
         node.declare_parameter("lidar_rate", 10.0)     # Hz
         node.declare_parameter("lidar_rays", 360)      # 1deg resolution (better SLAM)
         node.declare_parameter("lidar_range", 10.0)    # m
@@ -52,6 +57,15 @@ class SensorPublisher:
             self.caminfo_pub = node.create_publisher(CameraInfo, "camera/camera_info", 10)
             node.create_timer(1.0 / node.get_parameter("camera_rate").value,
                               self.camera_tick)
+
+        # --- third-person "scene" camera (streamed to the web panel) ---
+        self.scene_w = node.get_parameter("scene_width").value
+        self.scene_h = node.get_parameter("scene_height").value
+        self._scene_failed = False
+        if node.get_parameter("use_scene_cam").value:
+            self.scene_pub = node.create_publisher(Image, "sim/scene_image", 10)
+            node.create_timer(1.0 / node.get_parameter("scene_rate").value,
+                              self.scene_tick)
 
         # --- lidar (2D scan + optional 3D cloud) ---
         if node.get_parameter("use_lidar").value:
@@ -99,6 +113,25 @@ class SensorPublisher:
         info.p = [f, 0.0, cx, 0.0, 0.0, f, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
         info.distortion_model = "plumb_bob"
         self.caminfo_pub.publish(info)
+
+    def scene_tick(self):
+        if self._scene_failed:
+            return
+        try:
+            img = self.sim.render_scene(self.scene_w, self.scene_h)
+        except Exception as exc:                 # GL context issue, headless, etc.
+            self._scene_failed = True
+            self.node.get_logger().warn(f"scene camera disabled ({exc})")
+            return
+        msg = Image()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.height, msg.width = img.shape[0], img.shape[1]
+        msg.encoding = "rgb8"
+        msg.is_bigendian = 0
+        msg.step = img.shape[1] * 3
+        msg.data = img.tobytes()
+        self.scene_pub.publish(msg)
 
     def lidar_tick(self):
         ranges = self.sim.lidar_scan(self.lidar_rays, self.lidar_range)

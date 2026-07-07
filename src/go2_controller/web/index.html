@@ -163,6 +163,8 @@
   .lbl code { font-weight:400; color:var(--muted2); font-size:10px; }
   #cam { width:100%; aspect-ratio:1/1; object-fit:cover; background:#0b0b0b;
          border-radius:var(--r-sm); display:block; border:1px solid var(--line); }
+  #sim { width:100%; aspect-ratio:4/3; object-fit:cover; background:#0b0b0b;
+         border-radius:var(--r-sm); display:block; border:1px solid var(--line); }
   #lidar { width:100%; aspect-ratio:1/1; background:#0b0b0b; border-radius:var(--r-sm);
            display:block; border:1px solid var(--line); }
 
@@ -265,6 +267,14 @@
 
   <!-- ============ DASHBOARD ============ -->
   <section class="panel active" data-panel="dash">
+    <h2>Live Simulation</h2>
+    <div class="card">
+      <div class="lbl">🎮 MuJoCo scene <code>/sim/scene_image</code> · third-person chase view</div>
+      <img id="sim" alt="live simulation">
+      <div class="note">Live view of the running MuJoCo sim. Drive and pose the robot from
+        the <b>Drive</b>, <b>Posture</b> and <b>Arm</b> tabs and watch it move here.</div>
+    </div>
+
     <h2>Live Sensors</h2>
     <div class="card sensors">
       <div><div class="lbl">📷 Camera <code>/camera/image_raw</code></div>
@@ -470,18 +480,22 @@ function resolveEndpoints(raw) {
     const httpProto = u.protocol === "wss:" ? "https:" : "http:";
     return { wsUrl: raw.replace(/\/+$/, ""),
              camUrl: `${httpProto}//${u.hostname}:8080/stream?topic=/camera/image_raw&type=mjpeg`,
+             sceneUrl: `${httpProto}//${u.hostname}:8080/stream?topic=/sim/scene_image&type=mjpeg`,
              label: u.host };
   }
   let host = raw, port = "9090";
   if (raw.includes(":")) { const p = raw.split(":"); host = p[0]; port = p[1] || "9090"; }
+  const httpBase = `${secure ? "https" : "http"}://${host}:8080/stream`;
   return { wsUrl:  `${secure ? "wss" : "ws"}://${host}:${port}`,
-           camUrl: `${secure ? "https" : "http"}://${host}:8080/stream?topic=/camera/image_raw&type=mjpeg`,
+           camUrl: `${httpBase}?topic=/camera/image_raw&type=mjpeg`,
+           sceneUrl: `${httpBase}?topic=/sim/scene_image&type=mjpeg`,
            label:  `${host}:${port}` };
 }
 let endpoints = resolveEndpoints(localStorage.getItem("go2_host") || "");
 function applyEndpoints() {
   document.getElementById("hostlbl").textContent = endpoints.label;
   document.getElementById("cam").src = endpoints.camUrl;
+  document.getElementById("sim").src = endpoints.sceneUrl;
 }
 applyEndpoints();
 

@@ -30,6 +30,12 @@ class Go2Sim:
         self.viewer = None
         self._renderer = None
         self._cam_size = None
+        # Separate offscreen renderer + tracking camera for the third-person
+        # "scene" view streamed to the web panel (kept apart from the onboard
+        # camera so the two different sizes don't thrash a single renderer).
+        self._scene_renderer = None
+        self._scene_size = None
+        self._scene_cam = None
         self._lidar_sid = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_SITE, "lidar")
         # qvel/qpos address of the sports ball's free joint (GUI ball-driving / reset)
@@ -215,6 +221,25 @@ class Go2Sim:
             self._cam_size = (height, width)
         self._renderer.update_scene(self.data, camera=name)
         return self._renderer.render()
+
+    def render_scene(self, width=480, height=360, distance=2.2,
+                     azimuth=135.0, elevation=-20.0):
+        """Render a third-person chase view (H x W x 3, uint8) that follows the
+        robot. Uses a free tracking camera locked onto the trunk body, so it
+        needs no camera in the model XML. Streamed to the web panel as the
+        live "simulation" view."""
+        if self._scene_renderer is None or self._scene_size != (height, width):
+            self._scene_renderer = mujoco.Renderer(self.model, height, width)
+            self._scene_size = (height, width)
+        if self._scene_cam is None:
+            cam = mujoco.MjvCamera()
+            cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+            cam.trackbodyid = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_BODY, "base")
+            cam.distance, cam.azimuth, cam.elevation = distance, azimuth, elevation
+            self._scene_cam = cam
+        self._scene_renderer.update_scene(self.data, camera=self._scene_cam)
+        return self._scene_renderer.render()
 
     # --- lidar (horizontal 360 deg scan via ray casting) ---
     def lidar_scan(self, n_rays=180, range_max=10.0):

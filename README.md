@@ -121,7 +121,8 @@ edit src/go2_controller/web/**  →  git push  →  GitHub Actions  →  rattana
 - **Locomotion:** stable crawl gait (+ experimental trot/pace/bound/pronk), postures
   (stand/sit/crouch/liedown), body lean, timed routines (jump/wave/shake/dance).
 - **Control:** desktop tkinter GUI, phone/web panel (rosbridge), gamepad, keyboard.
-- **Sensors:** front RGB camera, 360° 2D lidar (`/scan`), 3D lidar (`/points`), IMU.
+- **Sensors:** front RGB camera, 360° 2D lidar (`/scan`), 3D lidar (`/points`), IMU,
+  plus a third-person chase view of the whole sim (`/sim/scene_image`) streamed to the web panel.
 - **Autonomy:** SLAM (`slam_toolbox`), Nav2 navigation, frontier auto-exploration,
   AMCL localization on a saved map, tap-to-go from the phone/desktop map.
 - **Following:** colour-blob tracker → velocity controller with reactive lidar obstacle

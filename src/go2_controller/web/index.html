@@ -47,7 +47,9 @@
   .viewport { position:relative; flex:1; min-height:220px; border-radius:var(--r);
               overflow:hidden; background:#05070c; border:1px solid var(--line);
               box-shadow:0 10px 30px #0005, 0 0 0 1px #ffffff05 inset; }
-  #sim { width:100%; height:100%; object-fit:cover; display:block; background:#05070c; }
+  #sim { width:100%; height:100%; object-fit:cover; display:block; background:#05070c;
+         cursor:grab; touch-action:none; }
+  #sim:active { cursor:grabbing; }
   .hud { position:absolute; top:10px; left:10px; display:flex; align-items:center; gap:9px;
          padding:7px 11px; font-size:12.5px; border-radius:999px;
          background:rgba(8,12,20,.72); backdrop-filter:blur(8px); border:1px solid var(--line2); }
@@ -206,8 +208,8 @@
         <span id="vel">stopped</span></div>
     </div>
     <div class="stagefoot">
-      <span class="chip">🎮 MuJoCo scene · <code>/sim/scene_image</code></span>
-      <span class="chip">third-person chase</span>
+      <span class="chip">🖱️ drag to rotate · scroll / pinch to zoom</span>
+      <span class="chip" id="camreset" style="cursor:pointer">↺ Reset view</span>
     </div>
   </aside>
 
@@ -423,7 +425,7 @@ function resolveEndpoints(raw) {
     const httpProto = u.protocol === "wss:" ? "https:" : "http:";
     return { wsUrl: raw.replace(/\/+$/, ""),
              camUrl: `${httpProto}//${u.hostname}:8080/stream?topic=/camera/image_raw&type=mjpeg`,
-             sceneUrl: `${httpProto}//${u.hostname}:8080/stream?topic=/sim/scene_image&type=mjpeg`,
+             sceneUrl: `${httpProto}//${u.hostname}:8080/stream?topic=/sim/scene_image&type=ros_compressed`,
              label: u.host };
   }
   let host = raw, port = "9090";
@@ -431,7 +433,7 @@ function resolveEndpoints(raw) {
   const httpBase = `${secure ? "https" : "http"}://${host}:8080/stream`;
   return { wsUrl:  `${secure ? "wss" : "ws"}://${host}:${port}`,
            camUrl: `${httpBase}?topic=/camera/image_raw&type=mjpeg`,
-           sceneUrl: `${httpBase}?topic=/sim/scene_image&type=mjpeg`,
+           sceneUrl: `${httpBase}?topic=/sim/scene_image&type=ros_compressed`,
            label:  `${host}:${port}` };
 }
 let endpoints = resolveEndpoints(localStorage.getItem("go2_host") || "");
@@ -472,6 +474,7 @@ function connect() {
     advertise("/cmd_vel", "geometry_msgs/Twist");
     advertise("/go2/action", "std_msgs/String");
     advertise("/go2/body_pose", "geometry_msgs/Twist");
+    advertise("/go2/scene_cam", "std_msgs/Float32MultiArray");
     advertise("/goal_pose", "geometry_msgs/PoseStamped");
     advertise("/go2/waypoints", "geometry_msgs/PoseArray");
     advertise("/go2/explore_enable", "std_msgs/Bool");
@@ -892,6 +895,54 @@ document.getElementById("wpclear").addEventListener("click", () => {
   route = []; document.getElementById("wpcount").textContent = "0 points";
   sendWaypoints([]); drawMap();
 });
+
+// ---- scene camera orbit / zoom (drives the server-rendered view) ----
+// Drag = rotate (azimuth/elevation), wheel or pinch = zoom (distance). We just
+// publish the desired orbit to /go2/scene_cam; the sim re-renders from it.
+(function () {
+  const el = document.getElementById("sim");
+  const HOME = { az: 135, el: -20, dist: 2.2 };
+  let cam = { ...HOME }, drag = null, last = 0;
+  function send() {
+    const now = performance.now();
+    if (now - last < 50) return;                 // throttle to ~20 Hz
+    last = now;
+    pub("/go2/scene_cam", {layout:{dim:[], data_offset:0},
+                           data:[cam.az, cam.el, cam.dist]});
+  }
+  function reset() { cam = { ...HOME }; last = 0; send(); }
+  el.addEventListener("pointerdown", (e) => {
+    el.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY };
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag = { x: e.clientX, y: e.clientY };
+    cam.az = (cam.az - dx * 0.4 + 360) % 360;
+    cam.el = Math.max(-89, Math.min(10, cam.el + dy * 0.4));
+    send();
+  });
+  const endDrag = () => { drag = null; };
+  el.addEventListener("pointerup", endDrag);
+  el.addEventListener("pointercancel", endDrag);
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    cam.dist = Math.max(0.5, Math.min(12, cam.dist * (e.deltaY > 0 ? 1.1 : 0.9)));
+    send();
+  }, { passive: false });
+  let pinch = null;                              // two-finger pinch zoom
+  el.addEventListener("touchmove", (e) => {
+    if (e.touches.length === 2) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                           e.touches[0].clientY - e.touches[1].clientY);
+      if (pinch) { cam.dist = Math.max(0.5, Math.min(12, cam.dist * (pinch / d))); send(); }
+      pinch = d; e.preventDefault();
+    }
+  }, { passive: false });
+  el.addEventListener("touchend", () => { pinch = null; });
+  const rb = document.getElementById("camreset");
+  if (rb) rb.addEventListener("click", reset);
+})();
 
 connect();
 </script>

@@ -24,6 +24,14 @@ class Go2Sim:
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         if timestep is not None:
             self.model.opt.timestep = timestep
+        # Higher-quality offscreen rendering for the streamed scene view:
+        # 8x MSAA anti-aliasing + a sharper shadow map, and a large offscreen
+        # buffer so the scene can be rendered at high resolution (the onboard
+        # camera just requests a smaller size within the same buffer).
+        self.model.vis.quality.offsamples = 8
+        self.model.vis.quality.shadowsize = 4096
+        self.model.vis.global_.offwidth = 1280
+        self.model.vis.global_.offheight = 960
         self.data = mujoco.MjData(self.model)
         self.kp = kp
         self.kd = kd
@@ -37,6 +45,9 @@ class Go2Sim:
         self._scene_renderer = None
         self._scene_size = None
         self._scene_cam = None
+        # Orbit params for the streamed scene camera (driven from the web panel
+        # via set_scene_view(): drag to rotate, wheel/pinch to zoom).
+        self.scene_az, self.scene_el, self.scene_dist = 135.0, -20.0, 2.2
         # Thread-safe snapshot of the sim state so camera/scene rendering can run
         # on a background thread without racing the physics step (see snapshot()).
         self._render_lock = threading.Lock()
@@ -240,12 +251,12 @@ class Go2Sim:
             self._renderer.update_scene(self._snap, camera=name)
         return self._renderer.render()
 
-    def render_scene(self, width=480, height=360, distance=2.2,
-                     azimuth=135.0, elevation=-20.0):
-        """Render a third-person chase view (H x W x 3, uint8) that follows the
-        robot. Uses a free tracking camera locked onto the trunk body, so it
-        needs no camera in the model XML. Streamed to the web panel as the
-        live "simulation" view."""
+    def render_scene(self, width=800, height=600):
+        """Render a third-person orbit view (H x W x 3, uint8) that follows the
+        robot. Uses a free tracking camera locked onto the trunk body (no camera
+        needed in the model XML). Azimuth/elevation/distance are live-adjustable
+        via set_scene_view(), so the web panel can orbit and zoom. Streamed to
+        the web panel as the "simulation" view."""
         if self._scene_renderer is None or self._scene_size != (height, width):
             self._scene_renderer = mujoco.Renderer(self.model, height, width)
             self._scene_size = (height, width)
@@ -254,11 +265,24 @@ class Go2Sim:
             cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
             cam.trackbodyid = mujoco.mj_name2id(
                 self.model, mujoco.mjtObj.mjOBJ_BODY, "base")
-            cam.distance, cam.azimuth, cam.elevation = distance, azimuth, elevation
             self._scene_cam = cam
+        self._scene_cam.azimuth = self.scene_az
+        self._scene_cam.elevation = self.scene_el
+        self._scene_cam.distance = self.scene_dist
         with self._render_lock:
             self._scene_renderer.update_scene(self._snap, camera=self._scene_cam)
         return self._scene_renderer.render()
+
+    def set_scene_view(self, azimuth=None, elevation=None, distance=None):
+        """Set the streamed scene camera's orbit (degrees / metres), clamped to
+        sane ranges. Called when the web panel drags/zooms. Read by the render
+        thread next frame; plain float writes, so no lock needed."""
+        if azimuth is not None:
+            self.scene_az = float(azimuth) % 360.0
+        if elevation is not None:
+            self.scene_el = max(-89.0, min(10.0, float(elevation)))
+        if distance is not None:
+            self.scene_dist = max(0.5, min(12.0, float(distance)))
 
     # --- lidar (horizontal 360 deg scan via ray casting) ---
     def lidar_scan(self, n_rays=180, range_max=10.0):

@@ -51,12 +51,12 @@ def generate_launch_description():
                               description="Also start the MuJoCo sim (teleop_controller)."),
         DeclareLaunchArgument("use_viewer", default_value="true",
                               description="Show the MuJoCo viewer (only if controller:=true)."),
-        DeclareLaunchArgument("scene_width", default_value="480",
+        DeclareLaunchArgument("scene_width", default_value="800",
                               description="Scene stream width in px (only if controller:=true)."),
-        DeclareLaunchArgument("scene_height", default_value="360",
+        DeclareLaunchArgument("scene_height", default_value="600",
                               description="Scene stream height in px (only if controller:=true)."),
-        DeclareLaunchArgument("scene_rate", default_value="10.0",
-                              description="Scene stream rate in Hz; higher = laggier control "
+        DeclareLaunchArgument("scene_rate", default_value="12.0",
+                              description="Scene stream rate in Hz; higher = more render load "
                                           "(only if controller:=true)."),
 
         # ROS topics <-> WebSocket bridge for the phone.

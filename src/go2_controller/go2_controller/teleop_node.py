@@ -21,7 +21,7 @@ from tf2_ros import (TransformBroadcaster, StaticTransformBroadcaster,
                      Buffer, TransformListener)
 from sensor_msgs.msg import JointState, Imu
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String, Float64MultiArray, Bool
+from std_msgs.msg import String, Float64MultiArray, Float32MultiArray, Bool
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -105,6 +105,10 @@ class Go2TeleopNode(Node):
         self.create_subscription(Twist, "cmd_vel", self.on_cmd_vel, 10)
         self.create_subscription(String, "go2/action", self.on_action, 10)
         self.create_subscription(Twist, "go2/body_pose", self.on_body_pose, 10)
+        # Web panel orbit/zoom of the streamed scene camera:
+        # data = [azimuth_deg, elevation_deg, distance_m].
+        self.create_subscription(Float32MultiArray, "go2/scene_cam",
+                                 self.on_scene_cam, 10)
         # GUI ball-driving: robot-frame (forward, left) velocity for the sports ball
         # (easier than Ctrl-dragging in the viewer). Held while fresh, else free physics.
         self._ball_cmd = (0.0, 0.0)
@@ -292,6 +296,11 @@ class Go2TeleopNode(Node):
                 self.get_logger().warn(f"unknown gait '{name}' (have {list(GAITS)})")
         else:
             self.get_logger().warn(f"unknown action '{a}'")
+
+    def on_scene_cam(self, msg: Float32MultiArray):
+        d = msg.data
+        if len(d) >= 3:
+            self.sim.set_scene_view(d[0], d[1], d[2])
 
     def on_body_pose(self, msg: Twist):
         self.body_pose["roll"] = msg.angular.x

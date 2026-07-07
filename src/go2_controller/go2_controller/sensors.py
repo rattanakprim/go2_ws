@@ -21,8 +21,11 @@ import math
 import threading
 import time
 
+import cv2
+
 from std_msgs.msg import Header
-from sensor_msgs.msg import Image, CameraInfo, LaserScan, PointCloud2
+from sensor_msgs.msg import (Image, CameraInfo, CompressedImage,
+                             LaserScan, PointCloud2)
 
 try:
     from sensor_msgs_py import point_cloud2 as pc2
@@ -41,15 +44,17 @@ class SensorPublisher:
         node.declare_parameter("camera_rate", 15.0)    # Hz
         node.declare_parameter("camera_width", 320)
         node.declare_parameter("camera_height", 240)
-        # Third-person chase view streamed to the web panel. Kept modest (480x360
-        # @10 Hz): rendering is off-thread, but building + serialising each frame
-        # still holds the GIL, and a heavier stream (e.g. 640x480@12) starved the
-        # 50 Hz control loop down to ~32 Hz. The web stage scales this up, so the
-        # on-page view stays large. Raise these if your control loop has headroom.
+        # Third-person orbit view streamed to the web panel. Rendered at high res
+        # with anti-aliasing and published JPEG-COMPRESSED (encoded on the render
+        # thread, ~50 KB/frame) instead of raw (~1.4 MB): the tiny payload keeps
+        # per-frame serialisation off the GIL long enough that the 50 Hz control
+        # loop stays smooth even at 800x600@12. web_video_server streams it via
+        # the compressed transport (web panel uses default_transport=compressed).
         node.declare_parameter("use_scene_cam", True)
-        node.declare_parameter("scene_rate", 10.0)     # Hz
-        node.declare_parameter("scene_width", 480)
-        node.declare_parameter("scene_height", 360)
+        node.declare_parameter("scene_rate", 12.0)     # Hz
+        node.declare_parameter("scene_width", 800)
+        node.declare_parameter("scene_height", 600)
+        node.declare_parameter("scene_quality", 85)    # JPEG quality (1..100)
         node.declare_parameter("lidar_rate", 10.0)     # Hz
         node.declare_parameter("lidar_rays", 360)      # 1deg resolution (better SLAM)
         node.declare_parameter("lidar_range", 10.0)    # m
@@ -72,10 +77,13 @@ class SensorPublisher:
 
         self.scene_w = node.get_parameter("scene_width").value
         self.scene_h = node.get_parameter("scene_height").value
+        self.scene_q = int(node.get_parameter("scene_quality").value)
         self._scene_failed = False
         self._scene_on = node.get_parameter("use_scene_cam").value
         if self._scene_on:
-            self.scene_pub = node.create_publisher(Image, "sim/scene_image", 10)
+            # image_transport compressed-topic naming convention: <base>/compressed
+            self.scene_pub = node.create_publisher(
+                CompressedImage, "sim/scene_image/compressed", 10)
             self.scene_period = 1.0 / node.get_parameter("scene_rate").value
 
         self._stop = None
@@ -137,18 +145,21 @@ class SensorPublisher:
             return
         try:
             img = self.sim.render_scene(self.scene_w, self.scene_h)
+            # Encode to JPEG here (cv2 releases the GIL) so we publish ~50 KB, not
+            # ~1.4 MB of raw pixels -- that's what keeps the control loop smooth.
+            ok, buf = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
+                                   [cv2.IMWRITE_JPEG_QUALITY, self.scene_q])
         except Exception as exc:                 # GL context issue, headless, etc.
             self._scene_failed = True
             self.node.get_logger().warn(f"scene camera disabled ({exc})")
             return
-        msg = Image()
+        if not ok:
+            return
+        msg = CompressedImage()
         msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.header.frame_id = "map"
-        msg.height, msg.width = img.shape[0], img.shape[1]
-        msg.encoding = "rgb8"
-        msg.is_bigendian = 0
-        msg.step = img.shape[1] * 3
-        msg.data = img.tobytes()
+        msg.format = "jpeg"
+        msg.data = buf.tobytes()
         self.scene_pub.publish(msg)
 
     def _render_loop(self):
